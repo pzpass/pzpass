@@ -1,29 +1,36 @@
 const std = @import("std");
+const words = @import("dicelist.zig").dice_words;
 
 pub fn generateDicePhrase(
     allocator: std.mem.Allocator,
     word_count: usize,
-    words: []const []const u8,
 ) ![]u8 {
-    if (words.len != 7776)
+    if (words.len < 7776)
         return error.InvalidWordList;
 
     var rng = std.crypto.random;
 
     var selected = try std.ArrayList([]const u8).initCapacity(allocator, word_count);
-    defer selected.deinit();
+    defer selected.deinit(allocator);
 
     for (0..word_count) |_| {
         var index: usize = 0;
 
-        // roll 5 dice
-        for (0..5) |_| {
-            const roll = rng.intRangeLessThan(u8, 1, 7) - 1; // 0..5
-            index = index * 6 + roll;
+        for (0..rng.intRangeLessThan(usize, 1, 10)) |_| {
+            index = rng.intRangeLessThan(usize, 0, words.len);
         }
 
-        try selected.append(words[index]);
+        try selected.append(allocator, words[index]);
     }
 
     return std.mem.join(allocator, "-", selected.items);
+}
+
+test "generated prase word count" {
+    const allocator = std.testing.allocator;
+
+    const dicephrase = try generateDicePhrase(allocator, 5);
+    defer allocator.free(dicephrase);
+
+    try std.testing.expect(dicephrase.len > 0);
 }

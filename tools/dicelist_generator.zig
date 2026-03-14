@@ -43,7 +43,7 @@ pub fn main() !void {
         \\const expect = std.testing.expect;
         \\const expectEqualSlices = std.testing.expectEqualSlices;
         \\
-        \\const dice_words = [_][]const u8{
+        \\pub const dice_words = [_][]const u8{
         \\
     );
 
@@ -56,7 +56,7 @@ pub fn main() !void {
         while (parts.next()) |p| {
             const trimmed = std.mem.trim(u8, p, " \t");
             if (trimmed.len == 0) continue;
-            try writer_interface.print("\"{s}\",\n", .{p});
+            try writer_interface.print("    \"{s}\",\n", .{p});
         }
     }
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const pzpass = @import("pzpass");
 
 pub fn main() !void {
-    try pzpass.bufferedPrint();
+    try pzpass.run();
 }
 
 test "dummy" {
