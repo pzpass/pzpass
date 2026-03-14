@@ -3,5 +3,4 @@ zig-out/
 docs/
 *.o
 *.a
-# src/confusable_lookup.zig
 

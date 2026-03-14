@@ -1,0 +1,2 @@
+nltk==3.9.3
+profanity==1.1
