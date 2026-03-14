@@ -1,13 +1,59 @@
 const std = @import("std");
+const dice = @import("dicephrase.zig");
 
-pub fn bufferedPrint() !void {
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
+const vault = @import("vault.zig");
+const passwordgen = @import("passwordgen.zig");
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+pub fn run() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    try stdout.flush();
+    var out_buff: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&out_buff);
+    const out = &stdout.interface;
+
+    const args = try std.process.argsAlloc(allocator);
+    if (args.len < 2) {
+        try printUsage();
+        return;
+    }
+    defer std.process.argsFree(allocator, args);
+
+    const cmd = args[1];
+
+    if (std.mem.eql(u8, cmd, "dice")) {
+        const word_count = if (args.len > 2)
+            std.fmt.parseInt(usize, args[2], 10) catch 5
+        else
+            5;
+        const dicephrase = try dice.generateDicePhrase(allocator, word_count);
+        defer allocator.free(dicephrase);
+        try out.print("{s}\n", .{dicephrase});
+    } else if (std.mem.eql(u8, cmd, "gen")) {
+        const pw = try passwordgen.generate(allocator, 20);
+        defer allocator.free(pw);
+        try out.print("{s}\n", .{pw});
+    } else {
+        try printUsage();
+    }
+
+    try out.flush();
+}
+
+fn printUsage() !void {
+    std.debug.print(
+        \\pwm - password manager
+        \\
+        \\Commands:
+        \\  init
+        \\  list
+        \\  add <name>
+        \\  get <name>
+        \\  delete <name>
+        \\  gen
+        \\
+    , .{});
 }
 
 test "dummy" {
