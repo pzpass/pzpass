@@ -13,6 +13,10 @@ pub fn run() !void {
     var stdout = std.fs.File.stdout().writer(&out_buff);
     const out = &stdout.interface;
 
+    var stdin_buff: [256]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buff);
+    const stdin = &stdin_reader.interface;
+
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
         try printUsage();
@@ -27,9 +31,30 @@ pub fn run() !void {
             std.fmt.parseInt(usize, args[2], 10) catch 5
         else
             5;
-        const dicephrase = try dice.generateDicePhrase(allocator, word_count);
-        defer allocator.free(dicephrase);
-        try out.print("{s}\n", .{dicephrase});
+        while (true) {
+            var original_termios: std.os.linux.termios = undefined;
+            _ = std.os.linux.tcgetattr(std.fs.File.stdout().handle, &original_termios);
+            var raw = original_termios;
+            raw.lflag.ICANON = false;
+            raw.lflag.ECHO = false;
+            _ = std.os.linux.tcsetattr(std.fs.File.stdout().handle, .NOW, &raw);
+            defer _ = std.os.linux.tcsetattr(std.fs.File.stdout().handle, .NOW, &original_termios);
+
+            const dicephrase = try dice.generateDicePhrase(allocator, word_count);
+            defer allocator.free(dicephrase);
+            try out.print("{s}\n", .{dicephrase});
+            try out.flush();
+
+            try stdin.fillMore();
+            const key = try stdin.takeByte();
+            //std.debug.print("{s}\n", .{user_imput});
+            //  {
+            //      std.debug.print("{}\n", .{err});
+            //  };
+            if (key == 27 or key == 'q') { // 27 is Escape
+                break;
+            }
+        }
     } else if (std.mem.eql(u8, cmd, "gen")) {
         const password_length = if (args.len > 2)
             std.fmt.parseInt(usize, args[2], 10) catch 20
