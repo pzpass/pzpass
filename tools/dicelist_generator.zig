@@ -108,6 +108,16 @@ pub fn main() !void {
         \\    try std.testing.expect((try dice_words.get(dice_words.len)).len != 0);
         \\}
         \\
+        \\test "get first word" {
+        \\    const word = try dice_words.get(0);
+        \\    try std.testing.expectEqualSlices(u8, word, "aaron");
+        \\}
+        \\
+        \\test "get last word" {
+        \\    const word = try dice_words.get(dice_words.len);
+        \\    try std.testing.expectEqualSlices(u8, word, "zurich");
+        \\}
+        \\
     );
     try writer_interface.flush();
 }

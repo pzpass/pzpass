@@ -1,6 +1,6 @@
 .{
     .name = .pzpass,
-    .version = "0.0.0",
+    .version = "0.0.2",
     .fingerprint = 0xe6b65f3474ceae4c, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.2",
     .dependencies = .{},
