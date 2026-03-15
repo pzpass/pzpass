@@ -78,6 +78,9 @@ pub fn main() !void {
         \\    len: usize,
         \\
         \\    pub fn get(self: @This(), index: usize) ![]const u8 {
+        \\        if (!(index < self.len)) {
+        \\            return error.OutOfBounds;
+        \\        }
         \\        return self.words_blob[self.words_offsets[index]..self.words_offsets[index + 1]];
         \\    }
         \\};
@@ -90,7 +93,7 @@ pub fn main() !void {
     try writer_interface.print(
         \\    .len = {d},
         \\
-    , .{word_length.items.len - 1});
+    , .{word_length.items.len});
     try writer_interface.writeAll(
         \\};
         \\
@@ -107,7 +110,7 @@ pub fn main() !void {
         \\}
         \\
         \\test "dice word lookup end" {
-        \\    try std.testing.expect((try dice_words.get(dice_words.len)).len != 0);
+        \\    try std.testing.expect((try dice_words.get(dice_words.len - 1)).len != 0);
         \\}
         \\
         \\test "get first word" {
@@ -115,8 +118,12 @@ pub fn main() !void {
         \\    try std.testing.expectEqualSlices(u8, word, "aaron");
         \\}
         \\
+        \\test "get out of bounds" {
+        \\    try std.testing.expectError(error.OutOfBounds, dice_words.get(dice_words.len));
+        \\}
+        \\
         \\test "get last word" {
-        \\    const word = try dice_words.get(dice_words.len);
+        \\    const word = try dice_words.get(dice_words.len - 1);
         \\    try std.testing.expectEqualSlices(u8, word, "zurich");
         \\}
         \\
