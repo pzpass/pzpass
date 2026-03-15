@@ -25,8 +25,14 @@ pub fn build(b: *std.Build) void {
     if (optimize == .ReleaseFast) {
         mod.strip = true;
         exe.root_module.strip = true;
+        b.install_path = buildLocalBinPath(b.allocator);
+        const install_exe = b.addInstallArtifact(exe, .{
+            .dest_dir = .{ .override = .prefix },
+        });
+        b.getInstallStep().dependOn(&install_exe.step);
+    } else {
+        b.installArtifact(exe);
     }
-    b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
 
@@ -74,4 +80,26 @@ pub fn build(b: *std.Build) void {
     const dice_list_gen_step = b.step("gen", "Generate dice list lookup");
     dice_list_gen_step.dependOn(&write_file_dice_list_gen.step);
     exe.step.dependOn(dice_list_gen_step);
+}
+
+fn createLocalBinDirectory(local_bin_path: []const u8) void {
+    std.fs.cwd().makeDir(local_bin_path) catch |err| switch (err) {
+        error.PathAlreadyExists => return,
+        else => {
+            std.debug.print("Could not create directory: {}\n", .{err});
+        },
+    };
+}
+
+fn buildLocalBinPath(allocator: std.mem.Allocator) []const u8 {
+    const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| {
+        std.debug.panic("Could not find home directory: {}\n", .{err});
+    };
+    const local_bin_path = std.fs.path.join(allocator, &[_][]const u8{
+        home,
+        ".local/bin",
+    }) catch |err| {
+        std.debug.panic("Could not local bin path: {}\n", .{err});
+    };
+    return local_bin_path;
 }
