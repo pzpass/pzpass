@@ -2,6 +2,16 @@ const std = @import("std");
 const Entry = @import("entry.zig").Entry;
 const storage = @import("storage.zig");
 
+const VaultHeader = packed struct {
+    magic: [6]u8,
+    version: u16,
+    mem_cost: u32,
+    time_cost: u32,
+    lanes: u32,
+    salt: [16]u8,
+    entry_count: u32,
+};
+
 pub const Vault = struct {
     entries: std.ArrayList(Entry),
 };
@@ -16,7 +26,13 @@ pub fn initVault(allocator: std.mem.Allocator) !void {
     var home_dir = try std.fs.openDirAbsolute(home, .{ .access_sub_paths = true });
     defer home_dir.close();
 
-    _ = try home_dir.makeDir(".pzpass");
+    home_dir.makeDir(".pzpass") catch |err| switch (err) {
+        error.PathAlreadyExists => return,
+        else => {
+            std.debug.print("Cannot create .pzpass config directory: {}\n", .{err});
+            return err;
+        },
+    };
 
     var vault_file = try std.fs.createFileAbsolute(path, .{
         .read = true,
@@ -24,7 +40,6 @@ pub fn initVault(allocator: std.mem.Allocator) !void {
         .mode = 0o600,
         .exclusive = true,
     });
-
     defer vault_file.close();
 
     try vault_file.writeAll("PZP1");
