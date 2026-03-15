@@ -86,6 +86,6 @@ fn printUsage() !void {
     , .{});
 }
 
-test "dummy" {
-    try std.testing.expect(true);
+test "init vault" {
+    try vault.initVault(std.testing.allocator);
 }
