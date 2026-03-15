@@ -20,7 +20,7 @@ pub fn generateDicePhrase(
             index = rng.intRangeLessThan(usize, 0, words.len);
         }
 
-        try selected.append(allocator, words[index]);
+        try selected.append(allocator, try words.get(index));
     }
 
     return std.mem.join(allocator, "-", selected.items);
