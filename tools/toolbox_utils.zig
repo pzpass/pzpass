@@ -21,7 +21,7 @@ pub fn downloadFile(allocator: std.mem.Allocator, url: []const u8, destination: 
         else => std.debug.panic("Error during fetch: {}\n", .{err}),
     };
     if (res.status != .ok) {
-        std.debug.print("Could not fetch confusables.txt\n", .{});
+        std.debug.print("Could not fetch {s}\n", .{destination});
     }
 }
 

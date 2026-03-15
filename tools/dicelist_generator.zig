@@ -37,29 +37,58 @@ pub fn main() !void {
     var writer = file.writerStreaming(&file_write_buf);
     const writer_interface = &writer.interface;
 
-    // try writer_interface.print("pub const table: [_]u21 = .{{\n", .{});
     try writer_interface.writeAll(
         \\const std = @import("std");
         \\const expect = std.testing.expect;
         \\const expectEqualSlices = std.testing.expectEqualSlices;
         \\
-        \\pub const dice_words = [_][]const u8{
-        \\
+        \\const words_blob = "
     );
+
+    var word_length = try std.ArrayList(usize).initCapacity(allocator, 20_000);
+    defer word_length.deinit(allocator);
 
     while (try read_file_interface.takeDelimiter('\n')) |line| {
         if (line.len == 0) continue;
         if (line[0] == '#') continue;
 
-        var parts = std.mem.splitScalar(u8, line, ' ');
+        var parts = std.mem.tokenizeScalar(u8, line, ' ');
 
         while (parts.next()) |p| {
             const trimmed = std.mem.trim(u8, p, " \t");
             if (trimmed.len == 0) continue;
-            try writer_interface.print("    \"{s}\",\n", .{p});
+            try writer_interface.print("{s}", .{p});
+            try word_length.append(allocator, p.len);
         }
     }
+    try writer_interface.writeAll("\";\n");
+    try writer_interface.writeAll("const offsets = [_]usize{0");
+    var offset_accum: usize = 0;
 
+    for (word_length.items) |item| {
+        offset_accum += item;
+        try writer_interface.print(", {d}", .{offset_accum});
+    }
+    try writer_interface.writeAll("};");
+    try writer_interface.writeAll(
+        \\
+        \\pub const DiceWords = struct {
+        \\    words_blob: []const u8,
+        \\    words_offsets: []const usize,
+        \\    len: usize,
+        \\
+        \\    pub fn get(self: @This(), index: usize) ![]const u8 {
+        \\        return self.words_blob[self.words_offsets[index]..self.words_offsets[index + 1]];
+        \\    }
+        \\};
+        \\
+        \\pub const dice_words = DiceWords{
+        \\    .words_blob = words_blob,
+        \\    .words_offsets = &offsets,
+    );
+    try writer_interface.print(
+        \\    .len = {d},
+    , .{word_length.items.len - 1});
     try writer_interface.writeAll(
         \\};
         \\
@@ -67,9 +96,16 @@ pub fn main() !void {
         \\    try std.testing.expect(dice_words.len > 7775);
         \\}
         \\
-        \\test "dice word lookup" {
-        \\    try std.testing.expect(dice_words[0].len != 0);
-        \\    try std.testing.expect(dice_words[7776].len != 0);
+        \\test "dice word lookup 0" {
+        \\    try std.testing.expect((try dice_words.get(0)).len != 0);
+        \\}
+        \\
+        \\test "dice word lookup 7776" {
+        \\    try std.testing.expect((try dice_words.get(7776)).len != 0);
+        \\}
+        \\
+        \\test "dice word lookup end" {
+        \\    try std.testing.expect((try dice_words.get(dice_words.len)).len != 0);
         \\}
         \\
     );
@@ -77,8 +113,5 @@ pub fn main() !void {
 }
 
 fn getWordList(allocator: std.mem.Allocator, destination: []const u8) !void {
-    try tools.downloadFile(allocator, "https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt", destination);
+    try tools.downloadFile(allocator, "https://github.com/pzpass/pzpass/blob/v0.0.0/dict/words.txt", destination);
 }
-
-// https://www.desiquintans.com/downloads/nounlist/nounlist.txt
-// https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt

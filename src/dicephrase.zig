@@ -20,7 +20,7 @@ pub fn generateDicePhrase(
             index = rng.intRangeLessThan(usize, 0, words.len);
         }
 
-        try selected.append(allocator, words[index]);
+        try selected.append(allocator, try words.get(index));
     }
 
     return std.mem.join(allocator, "-", selected.items);
@@ -33,4 +33,14 @@ test "generated prase word count" {
     defer allocator.free(dicephrase);
 
     try std.testing.expect(dicephrase.len > 0);
+}
+
+test "get first word" {
+    const word = try words.get(0);
+    try std.testing.expectEqualSlices(u8, word, "aaron");
+}
+
+test "get last word" {
+    const word = try words.get(words.len);
+    try std.testing.expectEqualSlices(u8, word, "zurich");
 }
