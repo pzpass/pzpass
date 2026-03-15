@@ -85,9 +85,11 @@ pub fn main() !void {
         \\pub const dice_words = DiceWords{
         \\    .words_blob = words_blob,
         \\    .words_offsets = &offsets,
+        \\
     );
     try writer_interface.print(
         \\    .len = {d},
+        \\
     , .{word_length.items.len - 1});
     try writer_interface.writeAll(
         \\};
