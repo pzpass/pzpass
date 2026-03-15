@@ -41,6 +41,10 @@ test "get first word" {
 }
 
 test "get last word" {
-    const word = try words.get(words.len);
+    const word = try words.get(words.len - 1);
     try std.testing.expectEqualSlices(u8, word, "zurich");
+}
+
+test "get out of bounds" {
+    try std.testing.expectError(error.OutOfBounds, words.get(words.len));
 }

@@ -10,6 +10,9 @@ pub const DiceWords = struct {
     len: usize,
 
     pub fn get(self: @This(), index: usize) ![]const u8 {
+        if (!(index < self.len)) {
+            return error.OutOfBounds;
+        }
         return self.words_blob[self.words_offsets[index]..self.words_offsets[index + 1]];
     }
 };
@@ -17,7 +20,7 @@ pub const DiceWords = struct {
 pub const dice_words = DiceWords{
     .words_blob = words_blob,
     .words_offsets = &offsets,
-    .len = 10398,
+    .len = 10399,
 };
 
 test "dice word length" {
@@ -33,7 +36,7 @@ test "dice word lookup 7776" {
 }
 
 test "dice word lookup end" {
-    try std.testing.expect((try dice_words.get(dice_words.len)).len != 0);
+    try std.testing.expect((try dice_words.get(dice_words.len - 1)).len != 0);
 }
 
 test "get first word" {
@@ -42,6 +45,10 @@ test "get first word" {
 }
 
 test "get last word" {
-    const word = try dice_words.get(dice_words.len);
+    const word = try dice_words.get(dice_words.len - 1);
     try std.testing.expectEqualSlices(u8, word, "zurich");
+}
+
+test "get out of bounds" {
+    try std.testing.expectError(error.OutOfBounds, dice_words.get(dice_words.len));
 }
