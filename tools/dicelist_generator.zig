@@ -113,8 +113,5 @@ pub fn main() !void {
 }
 
 fn getWordList(allocator: std.mem.Allocator, destination: []const u8) !void {
-    try tools.downloadFile(allocator, "https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt", destination);
+    try tools.downloadFile(allocator, "https://github.com/pzpass/pzpass/blob/v0.0.0/dict/words.txt", destination);
 }
-
-// https://www.desiquintans.com/downloads/nounlist/nounlist.txt
-// https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt

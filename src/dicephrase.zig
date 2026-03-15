@@ -34,3 +34,13 @@ test "generated prase word count" {
 
     try std.testing.expect(dicephrase.len > 0);
 }
+
+test "get first word" {
+    const word = try words.get(0);
+    try std.testing.expectEqualSlices(u8, word, "aaron");
+}
+
+test "get last word" {
+    const word = try words.get(words.len);
+    try std.testing.expectEqualSlices(u8, word, "zurich");
+}
