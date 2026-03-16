@@ -42,7 +42,7 @@ fn printUsage() !void {
         \\pzp - pEasy password manager
         \\
         \\Commands:
-        \\  dice [word_count]       Generate a dice passphrase
+        \\  dice [word_count]        Generate a dice passphrase
         \\  pass [password_length]   Generate a secure password
         \\  init
         \\  list
