@@ -5,16 +5,13 @@ pub fn randomBytes(buf: []u8) void {
     std.crypto.random.bytes(buf);
 }
 
-fn deriveKey(
+pub fn deriveKey(
     allocator: std.mem.Allocator,
     password: []const u8,
     salt: []const u8,
 ) ![local.KEY_LEN]u8 {
     var key: [local.KEY_LEN]u8 = undefined;
-    const locked_key_status = std.os.linux.mlock2(&key, key.len, .{});
-    if (locked_key_status != 0) {
-        std.debug.print("Cannot mlock key: size {d}\n", .{locked_key_status});
-    }
+    try mlockSlice(&key);
 
     try std.crypto.pwhash.argon2.kdf(
         allocator,
@@ -49,7 +46,7 @@ pub fn encrypt(
     );
 }
 
-fn encryptEntry(
+pub fn encryptEntry(
     plaintext: []const u8,
     key: [local.KEY_LEN]u8,
     nonce: [local.NONCE_LEN]u8,
@@ -66,7 +63,7 @@ fn encryptEntry(
     );
 }
 
-fn decryptEntry(
+pub fn decryptEntry(
     plaintext: []u8,
     cipher: []const u8,
     tag: [local.TAG_LEN]u8,
@@ -83,9 +80,17 @@ fn decryptEntry(
     );
 }
 
-fn zeroAndMunlock(key: [local.KEY_LEN]u8) void {
+pub fn mlockSlice(key: []u8) !void {
+    const locked_key_status = std.os.linux.mlock2(key.ptr, key.len, .{});
+    if (locked_key_status != 0) {
+        std.debug.print("Cannot mlock key: size {d}\n", .{locked_key_status});
+        return error.NotMlocked;
+    }
+}
+
+pub fn zeroAndMunlock(key: []const u8) void {
     std.crypto.secureZero(u8, @constCast(key[0..]));
-    const munlock_status = std.os.linux.munlock(&key, key.len);
+    const munlock_status = std.os.linux.munlock(key.ptr, key.len);
     if (munlock_status != 0) {
         std.debug.print("Cannot munlock, status: {d}", .{munlock_status});
     }
@@ -93,7 +98,7 @@ fn zeroAndMunlock(key: [local.KEY_LEN]u8) void {
 
 test "derive key" {
     const derived_key: [local.KEY_LEN]u8 = try deriveKey(std.testing.allocator, "blue-penguin", "orange-tiger");
-    defer zeroAndMunlock(derived_key);
+    defer zeroAndMunlock(&derived_key);
 
     try std.testing.expect(derived_key.len == local.KEY_LEN);
 
