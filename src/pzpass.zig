@@ -26,43 +26,10 @@ pub fn run() !void {
 
     const cmd = args[1];
 
-    if (std.mem.eql(u8, cmd, "dice")) {
-        const word_count = if (args.len > 2)
-            std.fmt.parseInt(usize, args[2], 10) catch 5
-        else
-            5;
-        while (true) {
-            var original_termios: std.os.linux.termios = undefined;
-            _ = std.os.linux.tcgetattr(std.fs.File.stdout().handle, &original_termios);
-            var raw = original_termios;
-            raw.lflag.ICANON = false;
-            raw.lflag.ECHO = false;
-            _ = std.os.linux.tcsetattr(std.fs.File.stdout().handle, .NOW, &raw);
-            defer _ = std.os.linux.tcsetattr(std.fs.File.stdout().handle, .NOW, &original_termios);
-
-            const dicephrase = try dice.generateDicePhrase(allocator, word_count);
-            defer allocator.free(dicephrase);
-            try out.print("{s}\n", .{dicephrase});
-            try out.flush();
-
-            try stdin.fillMore();
-            const key = try stdin.takeByte();
-            //std.debug.print("{s}\n", .{user_imput});
-            //  {
-            //      std.debug.print("{}\n", .{err});
-            //  };
-            if (key == 27 or key == 'q') { // 27 is Escape
-                break;
-            }
-        }
-    } else if (std.mem.eql(u8, cmd, "gen")) {
-        const password_length = if (args.len > 2)
-            std.fmt.parseInt(usize, args[2], 10) catch 20
-        else
-            20;
-        const pw = try passwordgen.generate(allocator, password_length);
-        defer allocator.free(pw);
-        try out.print("{s}\n", .{pw});
+    if (std.mem.startsWith(u8, "dicephrase", cmd)) {
+        try dice.runPassphraseGenerator(allocator, out, stdin, args);
+    } else if (std.mem.startsWith(u8, "password", cmd)) {
+        try passwordgen.runPasswordGenerator(allocator, out, args);
     } else {
         try printUsage();
     }
@@ -76,7 +43,7 @@ fn printUsage() !void {
         \\
         \\Commands:
         \\  dice [word_count]       Generate a dice passphrase
-        \\  gen [password_length]   Generate a secure password
+        \\  pass [password_length]   Generate a secure password
         \\  init
         \\  list
         \\  add <name>

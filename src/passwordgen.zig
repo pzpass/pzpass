@@ -5,6 +5,20 @@ const charset =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ" ++
     "0123456789";
 
+pub fn runPasswordGenerator(
+    allocator: std.mem.Allocator,
+    out: *std.io.Writer,
+    args: [][:0]u8,
+) !void {
+    const password_length = if (args.len > 2)
+        std.fmt.parseInt(usize, args[2], 10) catch 20
+    else
+        20;
+    const pw = try generate(allocator, password_length);
+    defer allocator.free(pw);
+    try out.print("{s}\n", .{pw});
+}
+
 pub fn generate(
     allocator: std.mem.Allocator,
     len: usize,

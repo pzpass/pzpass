@@ -1,5 +1,38 @@
 const std = @import("std");
+const crypto = @import("crypto.zig");
+const termios = @import("termios.zig");
 const words = @import("dicelist.zig").dice_words;
+
+pub fn runPassphraseGenerator(
+    allocator: std.mem.Allocator,
+    out: *std.io.Writer,
+    in: *std.io.Reader,
+    args: [][:0]u8,
+) !void {
+    const word_count = if (args.len > 2)
+        std.fmt.parseInt(usize, args[2], 10) catch 5
+    else
+        5;
+    while (true) {
+        var original_termios: std.os.linux.termios = undefined;
+        try termios.set_terminal(&original_termios);
+        defer termios.reset_terminal(&original_termios);
+
+        const dicephrase = try generateDicePhrase(allocator, word_count);
+        defer {
+            crypto.zeroAndMunlock(dicephrase);
+            allocator.free(dicephrase);
+        }
+        try out.print("{s}\n", .{dicephrase});
+        try out.flush();
+
+        try in.fillMore();
+        const key = try in.takeByte();
+        if (key == 27 or key == 'q') { // 27 is Escape
+            break;
+        }
+    }
+}
 
 pub fn generateDicePhrase(
     allocator: std.mem.Allocator,
@@ -23,7 +56,9 @@ pub fn generateDicePhrase(
         try selected.append(allocator, try words.get(index));
     }
 
-    return std.mem.join(allocator, "-", selected.items);
+    const passphrase = try std.mem.join(allocator, "-", selected.items);
+    try crypto.mlockSlice(passphrase);
+    return passphrase;
 }
 
 test "generated prase word count" {
