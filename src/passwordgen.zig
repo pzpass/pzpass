@@ -1,4 +1,5 @@
 const std = @import("std");
+const crypto = @import("crypto.zig");
 
 const charset =
     "abcdefghijklmnopqrstuvwxyz" ++
@@ -15,7 +16,10 @@ pub fn runPasswordGenerator(
     else
         20;
     const pw = try generate(allocator, password_length);
-    defer allocator.free(pw);
+    defer {
+        crypto.zeroAndMunlock(pw);
+        allocator.free(pw);
+    }
     try out.print("{s}\n", .{pw});
 }
 
@@ -24,6 +28,7 @@ pub fn generate(
     len: usize,
 ) ![]u8 {
     const out = try allocator.alloc(u8, len);
+    try crypto.mlockSlice(out);
 
     for (out) |*c| {
         const idx = std.crypto.random.intRangeLessThan(
