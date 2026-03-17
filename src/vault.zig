@@ -14,7 +14,7 @@ pub const Vault = struct {
 
     pub const Entry = struct {
         id: u64,
-        nonce: [config.NONCE_LEN]u8,
+        nonce: []u8,
         ciphertext: []const u8,
     };
 

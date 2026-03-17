@@ -16,7 +16,7 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *const Vault) ![]u8 {
 
     for (vault.entries.items) |entry| {
         try data.writer(allocator).writeInt(u64, entry.id, .little);
-        try data.appendSlice(allocator, &entry.nonce);
+        try data.appendSlice(allocator, entry.nonce);
         try data.writer(allocator).writeInt(usize, entry.ciphertext.len, .little);
         try data.appendSlice(allocator, entry.ciphertext);
     }
@@ -45,7 +45,7 @@ pub fn deserializeVault(allocator: std.mem.Allocator, bytes: []const u8) !Vault 
 
     for (entries.items) |*entry| {
         entry.id = try r.readInt(u64, .little);
-        try r.readNoEof(&entry.nonce);
+        try r.readNoEof(entry.nonce);
 
         const len = try r.readInt(usize, .little);
         entry.ciphertext = try allocator.alloc(u8, len);
@@ -68,34 +68,33 @@ pub fn deserializeVault(allocator: std.mem.Allocator, bytes: []const u8) !Vault 
 
 test "serialize deserialize" {
     const allocator = std.testing.allocator;
+
     var entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
     defer entries.deinit(allocator);
 
-    const ciphertexts = [_][]const u8{ "aaa", "bbb", "ccc" };
+    var ciphertexts: [3][100]u8 = undefined;
+    var nonces: [3][config.NONCE_LEN]u8 = undefined;
+    for (&nonces, &ciphertexts, 0..) |*nonce, *ct, id| {
+        std.crypto.random.bytes(nonce);
+        std.crypto.random.bytes(ct);
 
-    try entries.appendSlice(allocator, &.{
-        Vault.Entry{
-            .id = 1,
-            .nonce = [_]u8{'a'} ** config.NONCE_LEN,
-            .ciphertext = ciphertexts[0],
-        },
-        Vault.Entry{
-            .id = 2,
-            .nonce = [_]u8{'b'} ** config.NONCE_LEN,
-            .ciphertext = ciphertexts[1],
-        },
-        Vault.Entry{
-            .id = 3,
-            .nonce = [_]u8{'c'} ** config.NONCE_LEN,
-            .ciphertext = ciphertexts[2],
-        },
-    });
+        try entries.appendSlice(allocator, &.{
+            Vault.Entry{
+                .id = id,
+                .nonce = nonce,
+                .ciphertext = ct,
+            },
+        });
+    }
+
+    var salt: [config.SALT_LEN]u8 = undefined;
+    std.crypto.random.bytes(&salt);
 
     const vault = Vault{
         .header = .{
             .magic = config.MAGIC,
             .version = config.VERSION,
-            .salt = [_]u8{'a'} ** config.SALT_LEN,
+            .salt = salt,
             .iterations = config.ITERATIONS,
             .mem_cost = config.MEM_COST,
             .parallelism = config.PARALLELISM,
@@ -117,8 +116,7 @@ test "serialize deserialize" {
 
     const storage = @import("storage.zig");
 
-    //const file_path = "./tmp/testing.vault.dat";
-    const file_path = try storage.defaultVaultPath(allocator, "testing.vault.dat");
+    const file_path = try storage.VaultPath.default(allocator, "testing.vault.dat");
     defer allocator.free(file_path);
 
     try storage.writeFile(file_path, vault_serialized);
