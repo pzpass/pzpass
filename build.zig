@@ -82,8 +82,8 @@ pub fn build(b: *std.Build) void {
     exe.step.dependOn(dice_list_gen_step);
 }
 
-fn createLocalBinDirectory(local_bin_path: []const u8) void {
-    std.fs.cwd().makeDir(local_bin_path) catch |err| switch (err) {
+fn createDirectory(path: []const u8) void {
+    std.fs.cwd().makeDir(path) catch |err| switch (err) {
         error.PathAlreadyExists => return,
         else => {
             std.debug.print("Could not create directory: {}\n", .{err});

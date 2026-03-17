@@ -1,20 +1,44 @@
 const std = @import("std");
 
-pub fn defaultVaultPath(allocator: std.mem.Allocator) ![]u8 {
+pub fn defaultVaultPath(allocator: std.mem.Allocator, filename: ?[]const u8) ![]u8 {
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);
 
+    const actual_filename = filename orelse "vault.dat";
     return std.fmt.allocPrint(
         allocator,
-        "{s}/.pzpass/vault.dat",
-        .{home},
+        "{s}/.pzpass/{s}",
+        .{
+            home,
+            actual_filename,
+        },
     );
+}
+
+pub fn readFileAlloc(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) ![]u8 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    return try file.readToEndAlloc(allocator, 1 << 20);
+}
+
+pub fn writeFile(
+    path: []const u8,
+    data: []const u8,
+) !void {
+    const file = try std.fs.cwd().createFile(path, .{});
+    defer file.close();
+
+    try file.writeAll(data);
 }
 
 test "default path" {
     const allocator = std.testing.allocator;
 
-    const default_path = try defaultVaultPath(allocator);
+    const default_path = try defaultVaultPath(allocator, null);
     defer allocator.free(default_path);
 
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
