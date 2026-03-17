@@ -1,5 +1,5 @@
 const std = @import("std");
-const local = @import("constants.zig");
+const local = @import("config.zig");
 
 pub fn randomBytes(buf: []u8) void {
     std.crypto.random.bytes(buf);
