@@ -18,6 +18,24 @@ pub const VaultPath = struct {
             },
         );
     }
+
+    pub fn testing(allocator: std.mem.Allocator, filename: ?[]const u8) ![]u8 {
+        const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+        defer allocator.free(cwd);
+
+        std.fs.cwd().makeDir("tmp") catch |err| {
+            std.debug.print("{}\n", .{err});
+        };
+        const actual_filename = filename orelse "vault.dat";
+        return std.fmt.allocPrint(
+            allocator,
+            "{s}/tmp/{s}",
+            .{
+                cwd,
+                actual_filename,
+            },
+        );
+    }
 };
 
 pub fn readFileAlloc(
