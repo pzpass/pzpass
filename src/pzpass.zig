@@ -30,7 +30,7 @@ pub fn run() !void {
         try dice.runPassphraseGenerator(allocator, out, stdin, args);
     } else if (std.mem.startsWith(u8, "password", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, out, args);
-    } else {
+    } else if (std.mem.startsWith(u8, "initiate", cmd)) {} else {
         try printUsage();
     }
 
@@ -54,5 +54,5 @@ fn printUsage() !void {
 }
 
 test "init vault" {
-    try vault.initVault(std.testing.allocator);
+    _ = try vault.Vault.init(std.testing.allocator);
 }

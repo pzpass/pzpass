@@ -24,35 +24,34 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *const Vault) ![]u8 {
 }
 
 pub fn deserializeVault(allocator: std.mem.Allocator, bytes: []const u8) !Vault {
-    var stream = std.io.fixedBufferStream(bytes);
-    const r = stream.reader();
+    var r = std.io.Reader.fixed(bytes);
 
     var magic: [config.MAGIC.len]u8 = undefined;
-    try r.readNoEof(&magic);
+    try r.readSliceAll(&magic);
 
-    const version = try r.readInt(usize, .little);
+    const version = try r.takeInt(usize, .little);
 
     var salt: [config.SALT_LEN]u8 = undefined;
-    try r.readNoEof(&salt);
+    try r.readSliceAll(&salt);
 
-    const iterations = try r.readInt(usize, .little);
-    const mem_cost = try r.readInt(u32, .little);
-    const parallelism = try r.readInt(usize, .little);
-    const entry_count = try r.readInt(usize, .little);
+    const iterations = try r.takeInt(usize, .little);
+    const mem_cost = try r.takeInt(u32, .little);
+    const parallelism = try r.takeInt(usize, .little);
+    const entry_count = try r.takeInt(usize, .little);
 
     var entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
     defer entries.deinit(allocator);
 
     for (entries.items) |*entry| {
-        entry.id = try r.readInt(u64, .little);
-        try r.readNoEof(entry.nonce);
+        entry.id = try r.takeInt(u64, .little);
+        try r.readSliceAll(entry.nonce);
 
-        const len = try r.readInt(usize, .little);
+        const len = try r.takeInt(usize, .little);
         entry.ciphertext = try allocator.alloc(u8, len);
-        try r.readNoEof(@constCast(entry.ciphertext));
+        try r.readSliceAll(@constCast(entry.ciphertext));
     }
 
-    return Vault{
+    return .{
         .header = Vault.Header{
             .magic = magic,
             .version = version,

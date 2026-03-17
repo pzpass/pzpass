@@ -1,5 +1,7 @@
 const std = @import("std");
 const config = @import("config.zig");
+const format = @import("format.zig");
+const storage = @import("storage.zig");
 
 pub const Vault = struct {
     pub const Header = struct {
@@ -20,4 +22,57 @@ pub const Vault = struct {
 
     header: Header,
     entries: std.ArrayList(Entry),
+
+    pub fn init(allocator: std.mem.Allocator) !Vault {
+        var vault = fromFile(allocator) catch try new(allocator);
+        _ = &vault;
+        return vault;
+    }
+
+    fn new(allocator: std.mem.Allocator) !Vault {
+        var entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
+        defer entries.deinit(allocator);
+
+        var salt: [config.SALT_LEN]u8 = undefined;
+        std.crypto.random.bytes(&salt);
+
+        return .{
+            .header = .{
+                .magic = config.MAGIC,
+                .version = config.VERSION,
+                .salt = salt,
+                .iterations = config.ITERATIONS,
+                .mem_cost = config.MEM_COST,
+                .parallelism = config.PARALLELISM,
+                .entry_count = entries.items.len,
+            },
+            .entries = entries,
+        };
+    }
+
+    fn fromFile(allocator: std.mem.Allocator) !Vault {
+        var entries = try std.ArrayList(Entry).initCapacity(allocator, 0);
+        defer entries.deinit(allocator);
+
+        const file_path = try storage.VaultPath.default(allocator, null);
+        defer allocator.free(file_path);
+
+        const data_from_file = try storage.readFileAlloc(allocator, file_path);
+        defer allocator.free(data_from_file);
+
+        const vault_from_file = try format.deserializeVault(allocator, data_from_file);
+        return vault_from_file;
+    }
+
+    pub fn deinit(self: *Vault, allocator: std.mem.Allocator) void {
+        defer self.entries.deinit(allocator);
+        defer allocator.free(self);
+    }
 };
+
+// test "init" {
+//     const allocator = std.testing.allocator;
+//
+//     const vault = try Vault.init(allocator);
+//     defer vault.deinit(allocator);
+// }
