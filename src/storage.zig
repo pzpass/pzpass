@@ -8,6 +8,12 @@ pub const VaultPath = struct {
         const home = try std.process.getEnvVarOwned(allocator, "HOME");
         defer allocator.free(home);
 
+        var home_dir = try std.fs.openDirAbsolute(home, .{ .access_sub_paths = true });
+        home_dir.makeDir(".pzpass") catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => std.debug.print("{}\n", .{err}),
+        };
+
         const actual_filename = filename orelse "vault.dat";
         return std.fmt.allocPrint(
             allocator,
@@ -23,8 +29,9 @@ pub const VaultPath = struct {
         const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
         defer allocator.free(cwd);
 
-        std.fs.cwd().makeDir("tmp") catch |err| {
-            std.debug.print("{}\n", .{err});
+        std.fs.cwd().makeDir("tmp") catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => std.debug.print("{}\n", .{err}),
         };
         const actual_filename = filename orelse "vault.dat";
         return std.fmt.allocPrint(
@@ -75,4 +82,18 @@ test "default path" {
     defer allocator.free(expected);
 
     try std.testing.expectEqualStrings(expected, default_path);
+}
+
+test "testing path" {
+    const allocator = std.testing.allocator;
+
+    const testing_path = try VaultPath.testing(allocator, "testing.vault.dat");
+    defer allocator.free(testing_path);
+
+    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(cwd);
+
+    const expected = try std.fmt.allocPrint(allocator, "{s}/tmp/testing.vault.dat", .{cwd});
+    defer allocator.free(expected);
+    try std.testing.expectEqualStrings(testing_path, expected);
 }

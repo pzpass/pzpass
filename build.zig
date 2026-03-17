@@ -80,6 +80,12 @@ pub fn build(b: *std.Build) void {
     const dice_list_gen_step = b.step("gen", "Generate dice list lookup");
     dice_list_gen_step.dependOn(&write_file_dice_list_gen.step);
     exe.step.dependOn(dice_list_gen_step);
+
+    const clean_up_tmp = b.addRemoveDirTree(b.path("tmp"));
+    const clean_up = b.addRemoveDirTree(b.path("zig-out"));
+    const clean_step = b.step("clean", "Clean up");
+    clean_step.dependOn(&clean_up.step);
+    clean_step.dependOn(&clean_up_tmp.step);
 }
 
 fn createDirectory(path: []const u8) void {
