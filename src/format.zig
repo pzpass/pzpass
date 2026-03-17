@@ -117,8 +117,9 @@ test "serialize deserialize" {
 
     const storage = @import("storage.zig");
 
-    const file_path = "./tmp/testing.vault.dat";
-    // defer allocator.free(file_path);
+    //const file_path = "./tmp/testing.vault.dat";
+    const file_path = try storage.defaultVaultPath(allocator, "testing.vault.dat");
+    defer allocator.free(file_path);
 
     try storage.writeFile(file_path, vault_serialized);
 
