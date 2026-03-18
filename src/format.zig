@@ -2,7 +2,7 @@ const std = @import("std");
 const config = @import("config.zig");
 const Vault = @import("vault.zig").Vault;
 
-pub fn serializeVault(allocator: std.mem.Allocator, vault: *const Vault) ![]u8 {
+pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     var data = try std.ArrayList(u8).initCapacity(allocator, 1024);
     defer data.deinit(allocator);
 
@@ -23,7 +23,7 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *const Vault) ![]u8 {
     return data.toOwnedSlice(allocator);
 }
 
-pub fn deserializeVault(allocator: std.mem.Allocator, bytes: []const u8) !Vault {
+pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []const u8) !void {
     var r = std.io.Reader.fixed(bytes);
 
     var magic: [config.MAGIC.len]u8 = undefined;
@@ -39,8 +39,7 @@ pub fn deserializeVault(allocator: std.mem.Allocator, bytes: []const u8) !Vault 
     const parallelism = try r.takeInt(usize, .little);
     const entry_count = try r.takeInt(usize, .little);
 
-    var entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
-    defer entries.deinit(allocator);
+    const entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
     for (entries.items) |*entry| {
         entry.id = try r.takeInt(u64, .little);
@@ -51,61 +50,60 @@ pub fn deserializeVault(allocator: std.mem.Allocator, bytes: []const u8) !Vault 
         try r.readSliceAll(@constCast(entry.ciphertext));
     }
 
-    return .{
-        .header = Vault.Header{
-            .magic = magic,
-            .version = version,
-            .salt = salt,
-            .iterations = iterations,
-            .mem_cost = mem_cost,
-            .parallelism = parallelism,
-            .entry_count = entry_count,
-        },
-        .entries = entries,
+    vault.header = Vault.Header{
+        .magic = magic,
+        .version = version,
+        .salt = salt,
+        .iterations = iterations,
+        .mem_cost = mem_cost,
+        .parallelism = parallelism,
+        .entry_count = entry_count,
     };
+    vault.entries = entries;
 }
 
 test "serialize deserialize" {
     const allocator = std.testing.allocator;
 
-    var entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
-    defer entries.deinit(allocator);
+    const vault = try Vault.init(allocator);
+    defer vault.deinit(allocator);
 
-    var ciphertexts: [3][100]u8 = undefined;
-    var nonces: [3][config.NONCE_LEN]u8 = undefined;
-    for (&nonces, &ciphertexts, 0..) |*nonce, *ct, id| {
-        std.crypto.random.bytes(nonce);
-        std.crypto.random.bytes(ct);
+    for (0..3) |id| {
+        var nonce: [config.NONCE_LEN]u8 = undefined;
+        var ctext: [100]u8 = undefined;
 
-        try entries.appendSlice(allocator, &.{
-            Vault.Entry{
-                .id = id,
-                .nonce = nonce,
-                .ciphertext = ct,
-            },
-        });
+        std.crypto.random.bytes(&nonce);
+        std.crypto.random.bytes(&ctext);
+
+        const entry: Vault.Entry = .{
+            .id = id,
+            .nonce = &nonce,
+            .ciphertext = &ctext,
+        };
+
+        try vault.entries.append(allocator, entry);
     }
 
     var salt: [config.SALT_LEN]u8 = undefined;
     std.crypto.random.bytes(&salt);
 
-    const vault = Vault{
-        .header = .{
-            .magic = config.MAGIC,
-            .version = config.VERSION,
-            .salt = salt,
-            .iterations = config.ITERATIONS,
-            .mem_cost = config.MEM_COST,
-            .parallelism = config.PARALLELISM,
-            .entry_count = entries.items.len,
-        },
-        .entries = entries,
+    vault.header = .{
+        .magic = config.MAGIC,
+        .version = config.VERSION,
+        .salt = salt,
+        .iterations = config.ITERATIONS,
+        .mem_cost = config.MEM_COST,
+        .parallelism = config.PARALLELISM,
+        .entry_count = vault.entries.items.len,
     };
 
-    const vault_serialized = try serializeVault(allocator, &vault);
+    const vault_serialized = try serializeVault(allocator, vault);
     defer allocator.free(vault_serialized);
 
-    const vault_deserialized = try deserializeVault(allocator, vault_serialized);
+    const vault_deserialized = try allocator.create(Vault);
+    defer vault_deserialized.deinit(allocator);
+
+    try deserializeVault(allocator, vault_deserialized, vault_serialized);
 
     try std.testing.expectEqualSlices(u8, &vault_deserialized.header.magic, &config.MAGIC);
     try std.testing.expectEqualSlices(u8, &vault_deserialized.header.salt, &vault.header.salt);
@@ -123,7 +121,10 @@ test "serialize deserialize" {
     const data_from_file = try storage.readFileAlloc(allocator, file_path);
     defer allocator.free(data_from_file);
 
-    const vault_from_file = try deserializeVault(allocator, data_from_file);
+    const vault_from_file = try allocator.create(Vault);
+    defer vault_from_file.deinit(allocator);
+
+    try deserializeVault(allocator, vault_from_file, data_from_file);
 
     try std.testing.expectEqualSlices(u8, &vault_from_file.header.magic, &config.MAGIC);
     try std.testing.expectEqualSlices(u8, &vault_from_file.header.salt, &vault.header.salt);
