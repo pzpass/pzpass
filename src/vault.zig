@@ -17,62 +17,55 @@ pub const Vault = struct {
     pub const Entry = struct {
         id: u64,
         nonce: []u8,
-        ciphertext: []const u8,
+        ciphertext: []u8,
     };
 
     header: Header,
     entries: std.ArrayList(Entry),
 
-    pub fn init(allocator: std.mem.Allocator) !Vault {
-        var vault = fromFile(allocator) catch try new(allocator);
-        _ = &vault;
-        return vault;
+    pub fn init(allocator: std.mem.Allocator) !*Vault {
+        var self = try allocator.create(Vault);
+
+        self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
+
+        self.fromFile(allocator) catch try self.new();
+        return self;
     }
 
-    fn new(allocator: std.mem.Allocator) !Vault {
-        var entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
-        defer entries.deinit(allocator);
-
+    fn new(self: *Vault) !void {
         var salt: [config.SALT_LEN]u8 = undefined;
         std.crypto.random.bytes(&salt);
 
-        return .{
-            .header = .{
-                .magic = config.MAGIC,
-                .version = config.VERSION,
-                .salt = salt,
-                .iterations = config.ITERATIONS,
-                .mem_cost = config.MEM_COST,
-                .parallelism = config.PARALLELISM,
-                .entry_count = entries.items.len,
-            },
-            .entries = entries,
+        self.header = .{
+            .magic = config.MAGIC,
+            .version = config.VERSION,
+            .salt = salt,
+            .iterations = config.ITERATIONS,
+            .mem_cost = config.MEM_COST,
+            .parallelism = config.PARALLELISM,
+            .entry_count = self.entries.items.len,
         };
     }
 
-    fn fromFile(allocator: std.mem.Allocator) !Vault {
-        var entries = try std.ArrayList(Entry).initCapacity(allocator, 0);
-        defer entries.deinit(allocator);
-
+    fn fromFile(self: *Vault, allocator: std.mem.Allocator) !void {
         const file_path = try storage.VaultPath.default(allocator, null);
         defer allocator.free(file_path);
 
         const data_from_file = try storage.readFileAlloc(allocator, file_path);
         defer allocator.free(data_from_file);
 
-        const vault_from_file = try format.deserializeVault(allocator, data_from_file);
-        return vault_from_file;
+        try format.deserializeVault(allocator, self, data_from_file);
     }
 
     pub fn deinit(self: *Vault, allocator: std.mem.Allocator) void {
-        defer self.entries.deinit(allocator);
-        defer allocator.free(self);
+        self.entries.deinit(allocator);
+        allocator.destroy(self);
     }
 };
 
-// test "init" {
-//     const allocator = std.testing.allocator;
-//
-//     const vault = try Vault.init(allocator);
-//     defer vault.deinit(allocator);
-// }
+test "init" {
+    const allocator = std.testing.allocator;
+
+    var vault = try Vault.init(allocator);
+    defer vault.deinit(allocator);
+}
