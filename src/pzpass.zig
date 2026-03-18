@@ -1,7 +1,10 @@
 const std = @import("std");
 const dice = @import("dicephrase.zig");
 
-const vault = @import("vault.zig");
+const Vault = @import("vault.zig").Vault;
+const storage = @import("storage.zig");
+const format = @import("format.zig");
+
 const passwordgen = @import("passwordgen.zig");
 
 pub fn run() !void {
@@ -30,7 +33,18 @@ pub fn run() !void {
         try dice.runPassphraseGenerator(allocator, out, stdin, args);
     } else if (std.mem.startsWith(u8, "password", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, out, args);
-    } else if (std.mem.startsWith(u8, "initiate", cmd)) {} else {
+    } else if (std.mem.startsWith(u8, "initiate", cmd)) {
+        const vault = try Vault.init(allocator);
+        defer vault.deinit(allocator);
+
+        const file_path = try storage.VaultPath.default(allocator, "testing.vault.dat");
+        defer allocator.free(file_path);
+
+        const vault_serialized = try format.serializeVault(allocator, vault);
+        defer allocator.free(vault_serialized);
+
+        try storage.writeFile(file_path, vault_serialized);
+    } else {
         try printUsage();
     }
 
@@ -54,5 +68,6 @@ fn printUsage() !void {
 }
 
 test "init vault" {
-    _ = try vault.Vault.init(std.testing.allocator);
+    const vault = try Vault.init(std.testing.allocator);
+    defer vault.deinit(std.testing.allocator);
 }
