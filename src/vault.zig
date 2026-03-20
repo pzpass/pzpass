@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config.zig");
+const v1 = config.v1;
 const format = @import("format.zig");
 const storage = @import("storage.zig");
 
@@ -10,7 +11,7 @@ pub const Vault = struct {
         iterations: usize,
         mem_cost: u32,
         parallelism: usize,
-        salt: [config.SALT_LEN]u8,
+        salt: [v1.SALT_LEN]u8,
         entry_count: usize,
     };
 
@@ -35,16 +36,16 @@ pub const Vault = struct {
     }
 
     fn new(self: *Vault) !void {
-        var salt: [config.SALT_LEN]u8 = undefined;
+        var salt: [v1.SALT_LEN]u8 = undefined;
         std.crypto.random.bytes(&salt);
 
         self.header = .{
             .magic = config.MAGIC,
             .version = config.VERSION,
             .salt = salt,
-            .iterations = config.ITERATIONS,
-            .mem_cost = config.MEM_COST,
-            .parallelism = config.PARALLELISM,
+            .iterations = v1.ITERATIONS,
+            .mem_cost = v1.MEM_COST,
+            .parallelism = v1.PARALLELISM,
             .entry_count = self.entries.items.len,
         };
     }
