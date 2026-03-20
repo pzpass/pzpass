@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config.zig");
+const v1 = config.v1;
 const Vault = @import("vault.zig").Vault;
 
 pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
@@ -38,7 +39,7 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         std.debug.panic("Wrong version of pzpazz vault file.\n", .{});
     }
 
-    var salt: [config.SALT_LEN]u8 = undefined;
+    var salt: [v1.SALT_LEN]u8 = undefined;
     try r.readSliceAll(&salt);
 
     const iterations = try r.takeInt(usize, .little);
@@ -61,7 +62,7 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         const id = try r.takeInt(u64, .little);
         const len = try r.takeInt(usize, .little);
 
-        const nonce = try allocator.alloc(u8, config.NONCE_LEN);
+        const nonce = try allocator.alloc(u8, v1.NONCE_LEN);
         defer allocator.free(nonce);
         try r.readSliceAll(nonce);
 
@@ -69,7 +70,7 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         defer allocator.free(ciphertext);
         try r.readSliceAll(ciphertext);
 
-        const tag = try allocator.alloc(u8, config.TAG_LEN);
+        const tag = try allocator.alloc(u8, v1.TAG_LEN);
         defer allocator.free(tag);
         try r.readSliceAll(tag);
 
@@ -94,11 +95,11 @@ test "serialize deserialize" {
     defer vault.deinit(allocator);
 
     for (0..3) |id| {
-        const nonce = try allocator.alloc(u8, config.NONCE_LEN);
+        const nonce = try allocator.alloc(u8, v1.NONCE_LEN);
         defer allocator.free(nonce);
         const ctext = try allocator.alloc(u8, 100);
         defer allocator.free(ctext);
-        const tag = try allocator.alloc(u8, config.TAG_LEN);
+        const tag = try allocator.alloc(u8, v1.TAG_LEN);
         defer allocator.free(tag);
 
         std.crypto.random.bytes(nonce);
@@ -116,16 +117,16 @@ test "serialize deserialize" {
         try vault.entries.append(allocator, entry);
     }
 
-    var salt: [config.SALT_LEN]u8 = undefined;
+    var salt: [v1.SALT_LEN]u8 = undefined;
     std.crypto.random.bytes(&salt);
 
     vault.header = .{
         .magic = config.MAGIC,
         .version = config.VERSION,
         .salt = salt,
-        .iterations = config.ITERATIONS,
-        .mem_cost = config.MEM_COST,
-        .parallelism = config.PARALLELISM,
+        .iterations = v1.ITERATIONS,
+        .mem_cost = v1.MEM_COST,
+        .parallelism = v1.PARALLELISM,
         .entry_count = vault.entries.items.len,
     };
 
