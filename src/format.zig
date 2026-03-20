@@ -18,9 +18,9 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     for (vault.entries.items) |entry| {
         try data.writer(allocator).writeInt(u64, entry.id, .little);
         try data.writer(allocator).writeInt(usize, entry.ciphertext.len, .little);
-        try data.appendSlice(allocator, entry.nonce);
+        try data.appendSlice(allocator, &entry.nonce);
         try data.appendSlice(allocator, entry.ciphertext);
-        try data.appendSlice(allocator, entry.tag);
+        try data.appendSlice(allocator, &entry.tag);
     }
     return data.toOwnedSlice(allocator);
 }
@@ -77,9 +77,9 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         const entry: Vault.Entry = .{
             .id = id,
             .len = len,
-            .nonce = try allocator.dupe(u8, nonce),
+            .nonce = nonce[0..v1.NONCE_LEN].*,
             .ciphertext = try allocator.dupe(u8, ciphertext),
-            .tag = try allocator.dupe(u8, tag),
+            .tag = tag[0..v1.TAG_LEN].*,
         };
 
         try vault.entries.append(allocator, entry);
@@ -109,9 +109,9 @@ test "serialize deserialize" {
         const entry: Vault.Entry = .{
             .id = id,
             .len = ctext.len,
-            .nonce = try allocator.dupe(u8, nonce),
+            .nonce = nonce[0..v1.NONCE_LEN].*,
             .ciphertext = try allocator.dupe(u8, ctext),
-            .tag = try allocator.dupe(u8, tag),
+            .tag = tag[0..v1.TAG_LEN].*,
         };
 
         try vault.entries.append(allocator, entry);
@@ -147,9 +147,9 @@ test "serialize deserialize" {
     for (vault.entries.items, vault_deserialized.entries.items) |entry, ff| {
         try expect(entry.id == ff.id);
         try expect(entry.len == ff.len);
-        try expectEqualSlices(u8, entry.nonce, ff.nonce);
+        try expectEqualSlices(u8, &entry.nonce, &ff.nonce);
         try expectEqualSlices(u8, entry.ciphertext, ff.ciphertext);
-        try expectEqualSlices(u8, entry.tag, ff.tag);
+        try expectEqualSlices(u8, &entry.tag, &ff.tag);
     }
 
     const storage = @import("storage.zig");
@@ -177,8 +177,8 @@ test "serialize deserialize" {
     for (vault.entries.items, vault_from_file.entries.items) |entry, ff| {
         try expect(entry.id == ff.id);
         try expect(entry.len == ff.len);
-        try expectEqualSlices(u8, entry.nonce, ff.nonce);
+        try expectEqualSlices(u8, &entry.nonce, &ff.nonce);
         try expectEqualSlices(u8, entry.ciphertext, ff.ciphertext);
-        try expectEqualSlices(u8, entry.tag, ff.tag);
+        try expectEqualSlices(u8, &entry.tag, &ff.tag);
     }
 }
