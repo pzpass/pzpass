@@ -37,7 +37,7 @@ pub fn run() !void {
         const vault = try Vault.init(allocator);
         defer vault.deinit(allocator);
 
-        const file_path = try storage.VaultPath.default(allocator, "testing.vault.dat");
+        const file_path = try storage.VaultPath.default(allocator, null);
         defer allocator.free(file_path);
 
         const vault_serialized = try format.serializeVault(allocator, vault);

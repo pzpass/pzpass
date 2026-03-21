@@ -13,7 +13,8 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     try data.writer(allocator).writeInt(usize, vault.header.iterations, .little);
     try data.writer(allocator).writeInt(u32, vault.header.mem_cost, .little);
     try data.writer(allocator).writeInt(usize, vault.header.parallelism, .little);
-    try data.writer(allocator).writeInt(usize, vault.header.entry_count, .little);
+    try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little);
+    try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little); // double for control
 
     for (vault.entries.items) |entry| {
         try data.writer(allocator).writeInt(u64, entry.id, .little);
@@ -46,6 +47,10 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
     const mem_cost = try r.takeInt(u32, .little);
     const parallelism = try r.takeInt(usize, .little);
     const entry_count = try r.takeInt(usize, .little);
+    const contr_count = try r.takeInt(usize, .little);
+    if (entry_count != contr_count) {
+        return error.EntryCountNotMatch;
+    }
 
     vault.header = Vault.Header{
         .magic = magic,
@@ -54,7 +59,6 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         .iterations = iterations,
         .mem_cost = mem_cost,
         .parallelism = parallelism,
-        .entry_count = entry_count,
     };
     vault.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
@@ -83,6 +87,9 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         };
 
         try vault.entries.append(allocator, entry);
+    }
+    if (vault.entries.items.len != entry_count) {
+        return error.RecoveredVaultEntriesSizeNotMatch;
     }
 }
 
@@ -127,7 +134,6 @@ test "serialize deserialize" {
         .iterations = v1.ITERATIONS,
         .mem_cost = v1.MEM_COST,
         .parallelism = v1.PARALLELISM,
-        .entry_count = vault.entries.items.len,
     };
 
     const vault_serialized = try serializeVault(allocator, vault);
@@ -172,7 +178,6 @@ test "serialize deserialize" {
     try expect(vault_from_file.header.iterations == vault.header.iterations);
     try expect(vault_from_file.header.mem_cost == vault.header.mem_cost);
     try expect(vault_from_file.header.parallelism == vault.header.parallelism);
-    try expect(vault_from_file.header.entry_count == vault.header.entry_count);
 
     for (vault.entries.items, vault_from_file.entries.items) |entry, ff| {
         try expect(entry.id == ff.id);
