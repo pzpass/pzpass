@@ -18,10 +18,18 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
 
     for (vault.entries.items) |entry| {
         try data.writer(allocator).writeInt(u64, entry.id, .little);
-        try data.writer(allocator).writeInt(usize, entry.ciphertext.len, .little);
-        try data.appendSlice(allocator, &entry.nonce);
-        try data.appendSlice(allocator, entry.ciphertext);
-        try data.appendSlice(allocator, &entry.tag);
+
+        try data.writer(allocator).writeInt(usize, entry.ciphertext_name.len, .little);
+        try data.writer(allocator).writeInt(usize, entry.ciphertext_data.len, .little);
+
+        try data.appendSlice(allocator, &entry.nonce_name);
+        try data.appendSlice(allocator, &entry.nonce_data);
+
+        try data.appendSlice(allocator, entry.ciphertext_name);
+        try data.appendSlice(allocator, entry.ciphertext_data);
+
+        try data.appendSlice(allocator, &entry.tag_name);
+        try data.appendSlice(allocator, &entry.tag_data);
     }
     return data.toOwnedSlice(allocator);
 }
@@ -64,26 +72,42 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
 
     for (0..entry_count) |_| {
         const id = try r.takeInt(u64, .little);
-        const len = try r.takeInt(usize, .little);
 
-        const nonce = try allocator.alloc(u8, v1.NONCE_LEN);
-        defer allocator.free(nonce);
-        try r.readSliceAll(nonce);
+        const name_len = try r.takeInt(u64, .little);
+        const data_len = try r.takeInt(u64, .little);
 
-        const ciphertext = try allocator.alloc(u8, len);
-        defer allocator.free(ciphertext);
-        try r.readSliceAll(ciphertext);
+        const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
+        defer allocator.free(nonce_name);
+        try r.readSliceAll(nonce_name);
 
-        const tag = try allocator.alloc(u8, v1.TAG_LEN);
-        defer allocator.free(tag);
-        try r.readSliceAll(tag);
+        const nonce_data = try allocator.alloc(u8, v1.NONCE_LEN);
+        defer allocator.free(nonce_data);
+        try r.readSliceAll(nonce_data);
+
+        const ciphertext_name = try allocator.alloc(u8, name_len);
+        defer allocator.free(ciphertext_name);
+        try r.readSliceAll(ciphertext_name);
+
+        const ciphertext_data = try allocator.alloc(u8, data_len);
+        defer allocator.free(ciphertext_data);
+        try r.readSliceAll(ciphertext_data);
+
+        const tag_name = try allocator.alloc(u8, v1.TAG_LEN);
+        defer allocator.free(tag_name);
+        try r.readSliceAll(tag_name);
+
+        const tag_data = try allocator.alloc(u8, v1.TAG_LEN);
+        defer allocator.free(tag_data);
+        try r.readSliceAll(tag_data);
 
         const entry: Vault.Entry = .{
             .id = id,
-            .len = len,
-            .nonce = nonce[0..v1.NONCE_LEN].*,
-            .ciphertext = try allocator.dupe(u8, ciphertext),
-            .tag = tag[0..v1.TAG_LEN].*,
+            .tag_name = tag_name[0..v1.TAG_LEN].*,
+            .tag_data = tag_data[0..v1.TAG_LEN].*,
+            .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
+            .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
+            .ciphertext_name = try allocator.dupe(u8, ciphertext_name),
+            .ciphertext_data = try allocator.dupe(u8, ciphertext_data),
         };
 
         try vault.entries.append(allocator, entry);
@@ -102,23 +126,41 @@ test "serialize deserialize" {
     defer vault.deinit(allocator);
 
     for (0..3) |id| {
-        const nonce = try allocator.alloc(u8, v1.NONCE_LEN);
-        defer allocator.free(nonce);
-        const ctext = try allocator.alloc(u8, 100);
-        defer allocator.free(ctext);
-        const tag = try allocator.alloc(u8, v1.TAG_LEN);
-        defer allocator.free(tag);
+        const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
+        defer allocator.free(nonce_name);
 
-        std.crypto.random.bytes(nonce);
-        std.crypto.random.bytes(ctext);
-        std.crypto.random.bytes(tag);
+        const nonce_data = try allocator.alloc(u8, v1.NONCE_LEN);
+        defer allocator.free(nonce_data);
+
+        const ciphertext_name = try allocator.alloc(u8, 100);
+        defer allocator.free(ciphertext_name);
+
+        const ciphertext_data = try allocator.alloc(u8, 100);
+        defer allocator.free(ciphertext_data);
+
+        const tag_name = try allocator.alloc(u8, v1.TAG_LEN);
+        defer allocator.free(tag_name);
+
+        const tag_data = try allocator.alloc(u8, v1.TAG_LEN);
+        defer allocator.free(tag_data);
+
+        std.crypto.random.bytes(nonce_name);
+        std.crypto.random.bytes(nonce_data);
+
+        std.crypto.random.bytes(ciphertext_name);
+        std.crypto.random.bytes(ciphertext_data);
+
+        std.crypto.random.bytes(tag_name);
+        std.crypto.random.bytes(tag_data);
 
         const entry: Vault.Entry = .{
             .id = id,
-            .len = ctext.len,
-            .nonce = nonce[0..v1.NONCE_LEN].*,
-            .ciphertext = try allocator.dupe(u8, ctext),
-            .tag = tag[0..v1.TAG_LEN].*,
+            .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
+            .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
+            .ciphertext_name = try allocator.dupe(u8, ciphertext_name),
+            .ciphertext_data = try allocator.dupe(u8, ciphertext_data),
+            .tag_name = tag_name[0..v1.TAG_LEN].*,
+            .tag_data = tag_data[0..v1.TAG_LEN].*,
         };
 
         try vault.entries.append(allocator, entry);
@@ -152,10 +194,12 @@ test "serialize deserialize" {
 
     for (vault.entries.items, vault_deserialized.entries.items) |entry, ff| {
         try expect(entry.id == ff.id);
-        try expect(entry.len == ff.len);
-        try expectEqualSlices(u8, &entry.nonce, &ff.nonce);
-        try expectEqualSlices(u8, entry.ciphertext, ff.ciphertext);
-        try expectEqualSlices(u8, &entry.tag, &ff.tag);
+        try expectEqualSlices(u8, &entry.nonce_name, &ff.nonce_name);
+        try expectEqualSlices(u8, entry.ciphertext_name, ff.ciphertext_name);
+        try expectEqualSlices(u8, &entry.tag_name, &ff.tag_name);
+        try expectEqualSlices(u8, &entry.nonce_data, &ff.nonce_data);
+        try expectEqualSlices(u8, entry.ciphertext_data, ff.ciphertext_data);
+        try expectEqualSlices(u8, &entry.tag_data, &ff.tag_data);
     }
 
     const storage = @import("storage.zig");
@@ -181,9 +225,11 @@ test "serialize deserialize" {
 
     for (vault.entries.items, vault_from_file.entries.items) |entry, ff| {
         try expect(entry.id == ff.id);
-        try expect(entry.len == ff.len);
-        try expectEqualSlices(u8, &entry.nonce, &ff.nonce);
-        try expectEqualSlices(u8, entry.ciphertext, ff.ciphertext);
-        try expectEqualSlices(u8, &entry.tag, &ff.tag);
+        try expectEqualSlices(u8, &entry.nonce_name, &ff.nonce_name);
+        try expectEqualSlices(u8, entry.ciphertext_name, ff.ciphertext_name);
+        try expectEqualSlices(u8, &entry.tag_name, &ff.tag_name);
+        try expectEqualSlices(u8, &entry.nonce_data, &ff.nonce_data);
+        try expectEqualSlices(u8, entry.ciphertext_data, ff.ciphertext_data);
+        try expectEqualSlices(u8, &entry.tag_data, &ff.tag_data);
     }
 }

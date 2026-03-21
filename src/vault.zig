@@ -16,10 +16,12 @@ pub const Vault = struct {
 
     pub const Entry = struct {
         id: u64,
-        len: usize,
-        nonce: [v1.NONCE_LEN]u8,
-        ciphertext: []u8,
-        tag: [v1.TAG_LEN]u8,
+        nonce_name: [v1.NONCE_LEN]u8,
+        nonce_data: [v1.NONCE_LEN]u8,
+        tag_name: [v1.TAG_LEN]u8,
+        tag_data: [v1.TAG_LEN]u8,
+        ciphertext_name: []u8,
+        ciphertext_data: []u8,
     };
 
     header: Header,
@@ -60,7 +62,8 @@ pub const Vault = struct {
 
     pub fn deinit(self: *Vault, allocator: std.mem.Allocator) void {
         for (self.entries.items) |item| {
-            allocator.free(item.ciphertext);
+            allocator.free(item.ciphertext_name);
+            allocator.free(item.ciphertext_data);
         }
         self.entries.deinit(allocator);
         allocator.destroy(self);

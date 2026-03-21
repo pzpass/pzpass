@@ -33,16 +33,26 @@ pub fn deriveKey(
 pub fn encrypt(
     entry: *Vault.Entry,
     key: [v1.KEY_LEN]u8,
+    name: []const u8,
     plaintext: []const u8,
 ) void {
     const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
     aead.encrypt(
-        entry.ciphertext,
-        &entry.tag,
+        entry.ciphertext_name,
+        &entry.tag_name,
+        name,
+        "",
+        entry.nonce_name,
+        key,
+    );
+
+    aead.encrypt(
+        entry.ciphertext_data,
+        &entry.tag_data,
         plaintext,
         "",
-        entry.nonce,
+        entry.nonce_data,
         key,
     );
 }
@@ -50,16 +60,26 @@ pub fn encrypt(
 pub fn decrypt(
     entry: *Vault.Entry,
     key: [v1.KEY_LEN]u8,
+    name: []u8,
     plaintext: []u8,
 ) !void {
     const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
     try aead.decrypt(
-        plaintext,
-        entry.ciphertext,
-        entry.tag,
+        name,
+        entry.ciphertext_name,
+        entry.tag_name,
         "",
-        entry.nonce,
+        entry.nonce_name,
+        key,
+    );
+
+    try aead.decrypt(
+        plaintext,
+        entry.ciphertext_data,
+        entry.tag_data,
+        "",
+        entry.nonce_data,
         key,
     );
 }
@@ -97,39 +117,50 @@ test "derive key" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
-    const plaintext = "this is a plain text.";
     const entry = try allocator.create(Vault.Entry);
     defer allocator.destroy(entry);
 
-    std.crypto.random.bytes(&entry.nonce);
+    std.crypto.random.bytes(&entry.nonce_name);
+    std.crypto.random.bytes(&entry.nonce_data);
 
-    entry.ciphertext = try allocator.alloc(u8, plaintext.len);
-    defer allocator.free(entry.ciphertext);
+    const name = "plain text";
+    entry.ciphertext_name = try allocator.alloc(u8, name.len);
+    defer allocator.free(entry.ciphertext_name);
+
+    const data = "this is a plain text.";
+    entry.ciphertext_data = try allocator.alloc(u8, data.len);
+    defer allocator.free(entry.ciphertext_data);
 
     entry.id = std.crypto.random.int(u64);
-    entry.len = plaintext.len;
 
-    encrypt(entry, derived_key, plaintext);
-    std.debug.print(
-        \\ Vault Entry
-        \\  id:    {d}
-        \\  nonce: {x}
-        \\  len:   {d}
-        \\  tag:   {x}
-        \\  ct:    {x}
-        \\
-    , .{
-        entry.id,
-        entry.nonce,
-        entry.len,
-        entry.tag,
-        entry.ciphertext,
-    });
+    encrypt(entry, derived_key, name, data);
+    // std.debug.print(
+    //     \\ Vault Entry
+    //     \\  id:         {d}
+    //     \\  nonce:      {x}
+    //     \\  nonce:      {x}
+    //     \\  tag:        {x}
+    //     \\  tag:        {x}
+    //     \\  enc_name:   {x}
+    //     \\  enc_data:   {x}
+    //     \\
+    // , .{
+    //     entry.id,
+    //     entry.nonce_name,
+    //     entry.nonce_data,
+    //     entry.tag_name,
+    //     entry.tag_data,
+    //     entry.ciphertext_name,
+    //     entry.ciphertext_data,
+    // });
 
-    var decrypted: [plaintext.len]u8 = undefined;
+    var decrypted_name: [name.len]u8 = undefined;
+    var decrypted_data: [data.len]u8 = undefined;
 
-    try decrypt(entry, derived_key, &decrypted);
+    try decrypt(entry, derived_key, &decrypted_name, &decrypted_data);
 
-    try std.testing.expectEqualSlices(u8, plaintext, &decrypted);
-    std.debug.print("{s}\n", .{decrypted});
+    try std.testing.expectEqualSlices(u8, data, &decrypted_data);
+    try std.testing.expectEqualSlices(u8, name, &decrypted_name);
+    // std.debug.print("{s}\n", .{decrypted_name});
+    // std.debug.print("{s}\n", .{decrypted_data});
 }
