@@ -12,7 +12,6 @@ pub const Vault = struct {
         mem_cost: u32,
         parallelism: usize,
         salt: [v1.SALT_LEN]u8,
-        entry_count: usize,
     };
 
     pub const Entry = struct {
@@ -46,7 +45,6 @@ pub const Vault = struct {
             .iterations = v1.ITERATIONS,
             .mem_cost = v1.MEM_COST,
             .parallelism = v1.PARALLELISM,
-            .entry_count = self.entries.items.len,
         };
     }
 
