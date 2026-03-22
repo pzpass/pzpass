@@ -88,8 +88,9 @@ pub fn writeFile(
     if (cwd.access(path, .{})) |_| {
         cwd.deleteFile(bak_path) catch {};
         try cwd.rename(path, bak_path);
-    } else |_| {
-        // does not exist OR other error
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
     }
 
     try cwd.rename(tmp_path, path);
