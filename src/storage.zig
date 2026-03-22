@@ -67,10 +67,32 @@ pub fn writeFile(
     path: []const u8,
     data: []const u8,
 ) !void {
-    const file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
+    const allocator = std.heap.page_allocator;
 
-    try file.writeAll(data);
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{path});
+    defer allocator.free(tmp_path);
+
+    const bak_path = try std.fmt.allocPrint(allocator, "{s}.bak", .{path});
+    defer allocator.free(bak_path);
+
+    const cwd = std.fs.cwd();
+
+    {
+        const tmp_file = try cwd.createFile(tmp_path, .{ .truncate = true });
+        defer tmp_file.close();
+
+        try tmp_file.writeAll(data);
+        try tmp_file.sync();
+    }
+
+    if (cwd.access(path, .{})) |_| {
+        cwd.deleteFile(bak_path) catch {};
+        try cwd.rename(path, bak_path);
+    } else |_| {
+        // does not exist OR other error
+    }
+
+    try cwd.rename(tmp_path, path);
 }
 
 test "default path" {
