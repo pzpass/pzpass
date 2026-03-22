@@ -1,5 +1,4 @@
 const std = @import("std");
-const sha256 = std.crypto.hash.sha3.Sha3_256;
 const Vault = @import("vault.zig").Vault;
 const v1 = @import("config.zig").v1;
 const pzcrtypto = @import("crypto.zig");
@@ -46,7 +45,7 @@ pub const NameIndex = struct {
         for (vault.entries.items) |item| {
             const name = try decryptEntryName(item, master_key);
             defer pzcrtypto.zeroAndMunlock(name);
-            var hmac = sha256.init(.{});
+            var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(master_key);
             hmac.update(name);
             var hash: [32]u8 = undefined;
             hmac.final(&hash);
@@ -59,13 +58,26 @@ pub const NameIndex = struct {
         }
     }
 
-    pub fn findEntryIds(self: *NameIndex, name: []const u8) !?std.ArrayList(u64) {
-        var hmac = sha256.init(.{});
+    pub fn findEntryIds(self: *NameIndex, name: []const u8, master_key: []const u8) !?std.ArrayList(u64) {
+        var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(master_key);
         hmac.update(name);
         var hash: [32]u8 = undefined;
         hmac.final(&hash);
 
         return self.map.get(hash);
+    }
+
+    fn deriveNameKey(master_key: [32]u8) [32]u8 {
+        var out: [32]u8 = undefined;
+
+        std.crypto.kdf.hkdf.sha3.HkdfSha3_256.extractAndExpand(
+            &out,
+            "name-index-key",
+            &master_key,
+            "",
+        );
+
+        return out;
     }
 };
 
@@ -101,4 +113,7 @@ test "entry map" {
         try std.testing.expect(item.key_ptr.*.len == 32);
         try std.testing.expect(item.value_ptr.items.len > 0);
     }
+
+    const value = try name_index.findEntryIds("non_existent", &derived_key);
+    try std.testing.expect(value == null);
 }
