@@ -1,41 +1,81 @@
 const std = @import("std");
-const sha256 = std.crypto.hash.sha2.Sha256;
+const sha256 = std.crypto.hash.sha3.Sha3_256;
 const Vault = @import("vault.zig").Vault;
 const v1 = @import("config.zig").v1;
 const pzcrtypto = @import("crypto.zig");
 
-pub fn buildEntryNameMap(allocator: std.mem.Allocator, vault: *Vault, master_key: []const u8) !std.AutoHashMap([32]u8, u64) {
-    var map = std.AutoHashMap([32]u8, u64).init(allocator);
+pub const NameIndex = struct {
+    map: std.AutoHashMap([32]u8, std.ArrayList(u64)),
+    allocator: std.mem.Allocator,
 
-    for (vault.entries.items) |item| {
-        const name = try decryptEntryName(item, master_key);
+    pub fn init(allocator: std.mem.Allocator) NameIndex {
+        return .{
+            .map = std.AutoHashMap([32]u8, std.ArrayList(u64)).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *NameIndex) void {
+        var it = self.map.valueIterator();
+        while (it.next()) |list| {
+            list.deinit(self.allocator);
+        }
+        self.map.deinit();
+    }
+
+    pub fn insert(self: *NameIndex, key: [32]u8, id: u64) !void {
+        var entry = try self.map.getOrPut(key);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = std.ArrayList(u64).init(self.allocator);
+        }
+        try entry.value_ptr.append(id);
+    }
+
+    pub fn get(self: *NameIndex, key: [32]u8) ?[]u64 {
+        if (self.map.get(key)) |list| {
+            return list.items;
+        }
+        return null;
+    }
+
+    pub fn buildEntryNameMap(
+        self: *NameIndex,
+        vault: *Vault,
+        master_key: []const u8,
+    ) !void {
+        for (vault.entries.items) |item| {
+            const name = try decryptEntryName(item, master_key);
+            defer pzcrtypto.zeroAndMunlock(name);
+            var hmac = sha256.init(.{});
+            hmac.update(name);
+            var hash: [32]u8 = undefined;
+            hmac.final(&hash);
+
+            var entry = try self.map.getOrPut(hash);
+            if (!entry.found_existing) {
+                entry.value_ptr.* = try std.ArrayList(u64).initCapacity(self.allocator, 1);
+            }
+            try entry.value_ptr.append(self.allocator, item.id);
+        }
+    }
+
+    pub fn findEntryIds(self: *NameIndex, name: []const u8) !?std.ArrayList(u64) {
         var hmac = sha256.init(.{});
         hmac.update(name);
         var hash: [32]u8 = undefined;
         hmac.final(&hash);
 
-        try map.put(hash, item.id);
-
-        std.crypto.secureZero(u8, name);
+        return self.map.get(hash);
     }
+};
 
-    return map;
-}
-
-// pub fn findEntryId(map: *std.AutoHashMap([32]u8, usize), master_key: []const u8, requested_name: []const u8) !?usize {
-//     var hmac = try crypto.hmac.init(crypto.sha256, master_key);
-//     try hmac.update(requested_name);
-//     var hash = hmac.final();
-//
-//     return map.get(hash);
-// }
-
-// Mock decrypt function (replace with your ChaCha20-Poly1305 decryption)
+// Mock decrypt function
 fn decryptEntryName(entry: Vault.Entry, key: []const u8) ![]u8 {
     if (key.len != 32) {
         return error.WrongKey;
     }
     const buf = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
+    try pzcrtypto.mlockSlice(buf);
     // pretend decryption here
     std.mem.copyForwards(u8, buf, entry.ciphertext_name);
     return buf;
@@ -47,14 +87,18 @@ test "entry map" {
     var vault = try Vault.init(allocator);
     defer vault.deinit(allocator);
 
-    const derived_key: [v1.KEY_LEN]u8 = try pzcrtypto.deriveKey(std.testing.allocator, "blue-penguin", "orange-tiger");
+    var derived_key: [v1.KEY_LEN]u8 = try pzcrtypto.deriveKey(std.testing.allocator, "blue-penguin", "orange-tiger");
+    try pzcrtypto.mlockSlice(&derived_key);
     defer pzcrtypto.zeroAndMunlock(&derived_key);
 
-    var name_map = try buildEntryNameMap(allocator, vault, &derived_key);
-    defer name_map.deinit();
+    var name_index = NameIndex.init(allocator);
+    defer name_index.deinit();
 
-    var iter = name_map.iterator();
+    try name_index.buildEntryNameMap(vault, &derived_key);
+
+    var iter = name_index.map.iterator();
     while (iter.next()) |item| {
         try std.testing.expect(item.key_ptr.*.len == 32);
+        try std.testing.expect(item.value_ptr.items.len > 0);
     }
 }
