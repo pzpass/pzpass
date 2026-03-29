@@ -4,12 +4,12 @@ const v1 = @import("config.zig").v1;
 const pzcrtypto = @import("crypto.zig");
 
 pub const NameIndex = struct {
-    map: std.AutoHashMap([32]u8, std.ArrayList(u64)),
+    map: std.AutoHashMap([32]u8, std.ArrayList(usize)),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) NameIndex {
         return .{
-            .map = std.AutoHashMap([32]u8, std.ArrayList(u64)).init(allocator),
+            .map = std.AutoHashMap([32]u8, std.ArrayList(usize)).init(allocator),
             .allocator = allocator,
         };
     }
@@ -22,15 +22,15 @@ pub const NameIndex = struct {
         self.map.deinit();
     }
 
-    pub fn insert(self: *NameIndex, key: [32]u8, id: u64) !void {
+    pub fn insert(self: *NameIndex, key: [32]u8, id: usize) !void {
         var entry = try self.map.getOrPut(key);
         if (!entry.found_existing) {
-            entry.value_ptr.* = std.ArrayList(u64).init(self.allocator);
+            entry.value_ptr.* = try std.ArrayList(usize).initCapacity(self.allocator, 1);
         }
-        try entry.value_ptr.append(id);
+        try entry.value_ptr.append(self.allocator, id);
     }
 
-    pub fn get(self: *NameIndex, key: [32]u8) ?[]u64 {
+    pub fn get(self: *NameIndex, key: [32]u8) ?[]usize {
         if (self.map.get(key)) |list| {
             return list.items;
         }
@@ -50,15 +50,11 @@ pub const NameIndex = struct {
             var hash: [32]u8 = undefined;
             hmac.final(&hash);
 
-            var entry = try self.map.getOrPut(hash);
-            if (!entry.found_existing) {
-                entry.value_ptr.* = try std.ArrayList(u64).initCapacity(self.allocator, 1);
-            }
-            try entry.value_ptr.append(self.allocator, item.id);
+            try self.insert(hash, item.id);
         }
     }
 
-    pub fn findEntryIds(self: *NameIndex, name: []const u8, master_key: []const u8) !?std.ArrayList(u64) {
+    pub fn findEntryIds(self: *NameIndex, name: []const u8, master_key: []const u8) !?std.ArrayList(usize) {
         var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(master_key);
         hmac.update(name);
         var hash: [32]u8 = undefined;

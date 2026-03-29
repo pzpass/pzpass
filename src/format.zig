@@ -2,6 +2,7 @@ const std = @import("std");
 const config = @import("config.zig");
 const v1 = config.v1;
 const Vault = @import("vault.zig").Vault;
+const pzcrypt = @import("crypto.zig");
 
 pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     var data = try std.ArrayList(u8).initCapacity(allocator, 1024);
@@ -17,7 +18,7 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little); // double for control
 
     for (vault.entries.items) |entry| {
-        try data.writer(allocator).writeInt(u64, entry.id, .little);
+        try data.writer(allocator).writeInt(usize, entry.id, .little);
 
         try data.writer(allocator).writeInt(usize, entry.ciphertext_name.len, .little);
         try data.writer(allocator).writeInt(usize, entry.ciphertext_data.len, .little);
@@ -71,10 +72,10 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
     vault.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
     for (0..entry_count) |_| {
-        const id = try r.takeInt(u64, .little);
+        const id = try r.takeInt(usize, .little);
 
-        const name_len = try r.takeInt(u64, .little);
-        const data_len = try r.takeInt(u64, .little);
+        const name_len = try r.takeInt(usize, .little);
+        const data_len = try r.takeInt(usize, .little);
 
         const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
         defer allocator.free(nonce_name);
@@ -125,18 +126,18 @@ test "serialize deserialize" {
     const vault = try Vault.init(allocator);
     defer vault.deinit(allocator);
 
-    for (0..3) |id| {
+    for (0..3) |_| {
         const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
         defer allocator.free(nonce_name);
 
         const nonce_data = try allocator.alloc(u8, v1.NONCE_LEN);
         defer allocator.free(nonce_data);
 
-        const ciphertext_name = try allocator.alloc(u8, 100);
-        defer allocator.free(ciphertext_name);
+        const name = try allocator.alloc(u8, 20);
+        defer allocator.free(name);
 
-        const ciphertext_data = try allocator.alloc(u8, 100);
-        defer allocator.free(ciphertext_data);
+        const data = try allocator.alloc(u8, 100);
+        defer allocator.free(data);
 
         const tag_name = try allocator.alloc(u8, v1.TAG_LEN);
         defer allocator.free(tag_name);
@@ -147,21 +148,27 @@ test "serialize deserialize" {
         std.crypto.random.bytes(nonce_name);
         std.crypto.random.bytes(nonce_data);
 
-        std.crypto.random.bytes(ciphertext_name);
-        std.crypto.random.bytes(ciphertext_data);
+        std.crypto.random.bytes(name);
+        std.crypto.random.bytes(data);
 
         std.crypto.random.bytes(tag_name);
         std.crypto.random.bytes(tag_data);
 
-        const entry: Vault.Entry = .{
-            .id = id,
+        var key: [v1.KEY_LEN]u8 = try pzcrypt.deriveKey(allocator, "blue-penguin", "orange-tiger");
+        try pzcrypt.mlockSlice(&key);
+        defer pzcrypt.zeroAndMunlock(&key);
+
+        var entry: Vault.Entry = .{
+            .id = vault.entries.items.len,
             .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
             .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
-            .ciphertext_name = try allocator.dupe(u8, ciphertext_name),
-            .ciphertext_data = try allocator.dupe(u8, ciphertext_data),
+            .ciphertext_name = try allocator.dupe(u8, name),
+            .ciphertext_data = try allocator.dupe(u8, data),
             .tag_name = tag_name[0..v1.TAG_LEN].*,
             .tag_data = tag_data[0..v1.TAG_LEN].*,
         };
+
+        pzcrypt.encrypt(&entry, key, name, data);
 
         try vault.entries.append(allocator, entry);
     }
