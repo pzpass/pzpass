@@ -58,7 +58,7 @@ pub fn encrypt(
 }
 
 pub fn decrypt(
-    entry: *Vault.Entry,
+    entry: *const Vault.Entry,
     key: [v1.KEY_LEN]u8,
     name: []u8,
     plaintext: []u8,
@@ -131,28 +131,9 @@ test "derive key" {
     entry.ciphertext_data = try allocator.alloc(u8, data.len);
     defer allocator.free(entry.ciphertext_data);
 
-    entry.id = std.crypto.random.int(u64);
+    entry.id = std.crypto.random.int(usize);
 
     encrypt(entry, derived_key, name, data);
-    // std.debug.print(
-    //     \\ Vault Entry
-    //     \\  id:         {d}
-    //     \\  nonce:      {x}
-    //     \\  nonce:      {x}
-    //     \\  tag:        {x}
-    //     \\  tag:        {x}
-    //     \\  enc_name:   {x}
-    //     \\  enc_data:   {x}
-    //     \\
-    // , .{
-    //     entry.id,
-    //     entry.nonce_name,
-    //     entry.nonce_data,
-    //     entry.tag_name,
-    //     entry.tag_data,
-    //     entry.ciphertext_name,
-    //     entry.ciphertext_data,
-    // });
 
     var decrypted_name: [name.len]u8 = undefined;
     var decrypted_data: [data.len]u8 = undefined;
@@ -161,6 +142,4 @@ test "derive key" {
 
     try std.testing.expectEqualSlices(u8, data, &decrypted_data);
     try std.testing.expectEqualSlices(u8, name, &decrypted_name);
-    // std.debug.print("{s}\n", .{decrypted_name});
-    // std.debug.print("{s}\n", .{decrypted_data});
 }

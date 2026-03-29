@@ -1,8 +1,9 @@
 const std = @import("std");
 const config = @import("config.zig");
 const v1 = config.v1;
-const format = @import("format.zig");
 const storage = @import("storage.zig");
+const format = @import("format.zig");
+const pzcrypt = @import("crypto.zig");
 
 pub const Vault = struct {
     pub const Header = struct {
@@ -15,7 +16,7 @@ pub const Vault = struct {
     };
 
     pub const Entry = struct {
-        id: u64,
+        id: usize,
         nonce_name: [v1.NONCE_LEN]u8,
         nonce_data: [v1.NONCE_LEN]u8,
         tag_name: [v1.TAG_LEN]u8,
@@ -67,6 +68,50 @@ pub const Vault = struct {
         }
         self.entries.deinit(allocator);
         allocator.destroy(self);
+    }
+
+    pub fn help(out: *std.io.Writer) !void {
+        try out.writeAll(
+            \\
+            \\Press 'a' to add an entry,
+            \\      'l' to list entries,
+            \\      'i' to show the vault info,
+            \\      'q' to quit the app,
+            \\      'h' to see this help
+            \\=================================
+            \\
+            \\
+        );
+        try out.flush();
+    }
+
+    pub fn listEntries(self: *Vault, allocator: std.mem.Allocator, key: [v1.KEY_LEN]u8, out: *std.io.Writer) !void {
+        try out.print(
+            \\{s: >5}  {s}
+            \\
+        , .{ "id", "name" });
+        for (self.entries.items) |item| {
+            const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+            try pzcrypt.mlockSlice(name);
+            defer {
+                pzcrypt.zeroAndMunlock(name);
+                allocator.free(name);
+            }
+
+            const data: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+            try pzcrypt.mlockSlice(data);
+            defer {
+                pzcrypt.zeroAndMunlock(data);
+                allocator.free(data);
+            }
+
+            try pzcrypt.decrypt(&item, key, name, data);
+            try out.print("{d: >5}: {x}\n", .{ item.id, name });
+        }
+        try out.writeAll(
+            \\
+        );
+        try out.flush();
     }
 };
 

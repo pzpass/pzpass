@@ -4,6 +4,7 @@ const dice = @import("dicephrase.zig");
 const Vault = @import("vault.zig").Vault;
 const storage = @import("storage.zig");
 const format = @import("format.zig");
+const interactive = @import("interactive.zig");
 
 const passwordgen = @import("passwordgen.zig");
 
@@ -22,7 +23,7 @@ pub fn run() !void {
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
-        try printUsage();
+        try interactive.run(allocator, out, stdin);
         return;
     }
     defer std.process.argsFree(allocator, args);
@@ -33,17 +34,6 @@ pub fn run() !void {
         try dice.runPassphraseGenerator(allocator, out, stdin, args);
     } else if (std.mem.startsWith(u8, "password", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, out, args);
-    } else if (std.mem.startsWith(u8, "initiate", cmd)) {
-        const vault = try Vault.init(allocator);
-        defer vault.deinit(allocator);
-
-        const file_path = try storage.VaultPath.default(allocator, null);
-        defer allocator.free(file_path);
-
-        const vault_serialized = try format.serializeVault(allocator, vault);
-        defer allocator.free(vault_serialized);
-
-        try storage.writeFile(file_path, vault_serialized);
     } else {
         try printUsage();
     }
@@ -58,11 +48,6 @@ fn printUsage() !void {
         \\Commands:
         \\  dice [word_count]        Generate a dice passphrase
         \\  pass [password_length]   Generate a secure password
-        \\  init
-        \\  list
-        \\  add <name>
-        \\  get <name>
-        \\  delete <name>
         \\
     , .{});
 }
