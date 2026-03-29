@@ -78,18 +78,18 @@ pub const Vault = struct {
             \\      'i' to show the vault info,
             \\      'q' to quit the app,
             \\      'h' to see this help
-            \\=================================
             \\
             \\
         );
         try out.flush();
     }
 
-    pub fn listEntries(self: *Vault, allocator: std.mem.Allocator, key: [v1.KEY_LEN]u8, out: *std.io.Writer) !void {
-        try out.print(
-            \\{s: >5}  {s}
-            \\
-        , .{ "id", "name" });
+    pub fn listEntries(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        key: [v1.KEY_LEN]u8,
+        out: *std.io.Writer,
+    ) !void {
         for (self.entries.items) |item| {
             const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
             try pzcrypt.mlockSlice(name);

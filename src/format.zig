@@ -126,6 +126,13 @@ test "serialize deserialize" {
     const vault = try Vault.init(allocator);
     defer vault.deinit(allocator);
 
+    var salt: [v1.SALT_LEN]u8 = undefined;
+    std.crypto.random.bytes(&salt);
+
+    var key: [v1.KEY_LEN]u8 = try pzcrypt.deriveKey(allocator, "blue-penguin", &salt);
+    try pzcrypt.mlockSlice(&key);
+    defer pzcrypt.zeroAndMunlock(&key);
+
     for (0..3) |_| {
         const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
         defer allocator.free(nonce_name);
@@ -154,10 +161,6 @@ test "serialize deserialize" {
         std.crypto.random.bytes(tag_name);
         std.crypto.random.bytes(tag_data);
 
-        var key: [v1.KEY_LEN]u8 = try pzcrypt.deriveKey(allocator, "blue-penguin", "orange-tiger");
-        try pzcrypt.mlockSlice(&key);
-        defer pzcrypt.zeroAndMunlock(&key);
-
         var entry: Vault.Entry = .{
             .id = vault.entries.items.len,
             .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
@@ -172,9 +175,6 @@ test "serialize deserialize" {
 
         try vault.entries.append(allocator, entry);
     }
-
-    var salt: [v1.SALT_LEN]u8 = undefined;
-    std.crypto.random.bytes(&salt);
 
     vault.header = .{
         .magic = config.MAGIC,
