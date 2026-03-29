@@ -40,12 +40,12 @@ pub const NameIndex = struct {
     pub fn buildEntryNameMap(
         self: *NameIndex,
         vault: *Vault,
-        master_key: []const u8,
+        master_key: [v1.KEY_LEN]u8,
     ) !void {
         for (vault.entries.items) |item| {
             const name = try decryptEntryName(item, master_key);
             defer pzcrtypto.zeroAndMunlock(name);
-            var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(master_key);
+            var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(&master_key);
             hmac.update(name);
             var hash: [32]u8 = undefined;
             hmac.final(&hash);
@@ -78,38 +78,41 @@ pub const NameIndex = struct {
 };
 
 // Mock decrypt function
-fn decryptEntryName(entry: Vault.Entry, key: []const u8) ![]u8 {
+fn decryptEntryName(entry: Vault.Entry, key: [v1.KEY_LEN]u8) ![]u8 {
     if (key.len != 32) {
         return error.WrongKey;
     }
-    const buf = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
-    try pzcrtypto.mlockSlice(buf);
+    const name = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
+    try pzcrtypto.mlockSlice(name);
+    const data = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
+    try pzcrtypto.mlockSlice(data);
     // pretend decryption here
-    std.mem.copyForwards(u8, buf, entry.ciphertext_name);
-    return buf;
+    try pzcrtypto.decrypt(&entry, key, name, data);
+    return name;
 }
 
 test "entry map" {
     const allocator = std.testing.allocator;
+    const expect = std.testing.expect;
 
     var vault = try Vault.init(allocator);
     defer vault.deinit(allocator);
 
-    var derived_key: [v1.KEY_LEN]u8 = try pzcrtypto.deriveKey(std.testing.allocator, "blue-penguin", "orange-tiger");
+    var derived_key: [v1.KEY_LEN]u8 = try pzcrtypto.deriveKey(allocator, "blue-penguin", &vault.header.salt);
     try pzcrtypto.mlockSlice(&derived_key);
     defer pzcrtypto.zeroAndMunlock(&derived_key);
 
     var name_index = NameIndex.init(allocator);
     defer name_index.deinit();
 
-    try name_index.buildEntryNameMap(vault, &derived_key);
+    try name_index.buildEntryNameMap(vault, derived_key);
 
     var iter = name_index.map.iterator();
     while (iter.next()) |item| {
-        try std.testing.expect(item.key_ptr.*.len == 32);
-        try std.testing.expect(item.value_ptr.items.len > 0);
+        try expect(item.key_ptr.*.len == 32);
+        try expect(item.value_ptr.items.len > 0);
     }
 
     const value = try name_index.findEntryIds("non_existent", &derived_key);
-    try std.testing.expect(value == null);
+    try expect(value == null);
 }

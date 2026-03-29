@@ -101,21 +101,22 @@ pub fn zeroAndMunlock(key: []const u8) void {
 }
 
 test "derive key" {
-    const derived_key: [v1.KEY_LEN]u8 = try deriveKey(std.testing.allocator, "blue-penguin", "orange-tiger");
+    const allocator = std.testing.allocator;
+    const expect = std.testing.expect;
+    const expectEqualSlices = std.testing.expectEqualSlices;
+
+    const derived_key: [v1.KEY_LEN]u8 = try deriveKey(allocator, "blue-penguin", "orange-tiger");
     defer zeroAndMunlock(&derived_key);
 
-    try std.testing.expect(derived_key.len == v1.KEY_LEN);
+    try expect(derived_key.len == v1.KEY_LEN);
 
     const expected_hex = "a244cb38a5b637d6bb111abb9cccebfffb015572f1314ca445ad51f08c82bc0c";
 
     var expected_bytes: [v1.KEY_LEN]u8 = undefined;
 
     const result = try std.fmt.hexToBytes(&expected_bytes, expected_hex);
-    try std.testing.expectEqualSlices(u8, &expected_bytes, &derived_key);
-    try std.testing.expect(result.len == v1.KEY_LEN);
-
-    const testing = std.testing;
-    const allocator = testing.allocator;
+    try expectEqualSlices(u8, &expected_bytes, &derived_key);
+    try expect(result.len == v1.KEY_LEN);
 
     const entry = try allocator.create(Vault.Entry);
     defer allocator.destroy(entry);
@@ -140,6 +141,6 @@ test "derive key" {
 
     try decrypt(entry, derived_key, &decrypted_name, &decrypted_data);
 
-    try std.testing.expectEqualSlices(u8, data, &decrypted_data);
-    try std.testing.expectEqualSlices(u8, name, &decrypted_name);
+    try expectEqualSlices(u8, data, &decrypted_data);
+    try expectEqualSlices(u8, name, &decrypted_name);
 }
