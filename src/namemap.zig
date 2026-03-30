@@ -1,7 +1,7 @@
 const std = @import("std");
 const Vault = @import("vault.zig").Vault;
 const v1 = @import("config.zig").v1;
-const pzcrtypto = @import("crypto.zig");
+const pzcrypt = @import("crypto.zig");
 
 pub const NameIndex = struct {
     map: std.AutoHashMap([32]u8, std.ArrayList(usize)),
@@ -44,7 +44,7 @@ pub const NameIndex = struct {
     ) !void {
         for (vault.entries.items) |item| {
             const name = try decryptEntryName(item, master_key);
-            defer pzcrtypto.zeroAndMunlock(name);
+            defer pzcrypt.zeroAndMunlock(name);
             var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(&master_key);
             hmac.update(name);
             var hash: [32]u8 = undefined;
@@ -83,11 +83,11 @@ fn decryptEntryName(entry: Vault.Entry, key: [v1.KEY_LEN]u8) ![]u8 {
         return error.WrongKey;
     }
     const name = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
-    try pzcrtypto.mlockSlice(name);
+    try pzcrypt.mlockSlice(name);
     const data = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
-    try pzcrtypto.mlockSlice(data);
+    try pzcrypt.mlockSlice(data);
     // pretend decryption here
-    try pzcrtypto.decrypt(&entry, key, name, data);
+    try pzcrypt.decrypt(&entry, key, name, data);
     return name;
 }
 
@@ -95,17 +95,35 @@ test "entry map" {
     const allocator = std.testing.allocator;
     const expect = std.testing.expect;
 
-    var vault = try Vault.init(allocator);
+    var vault = try allocator.create(Vault);
+
+    var kek: [v1.KEY_LEN]u8 = undefined;
+    try pzcrypt.mlockSlice(&kek);
+    defer pzcrypt.zeroAndMunlock(&kek);
+
+    var password_key: [v1.KEY_LEN]u8 = try pzcrypt.deriveKey(allocator, "blue-penguin", &vault.header.salt);
+    try pzcrypt.mlockSlice(&password_key);
+    defer pzcrypt.zeroAndMunlock(&password_key);
+
+    vault = try Vault.init(allocator, password_key);
     defer vault.deinit(allocator);
 
-    var derived_key: [v1.KEY_LEN]u8 = try pzcrtypto.deriveKey(allocator, "blue-penguin", &vault.header.salt);
-    try pzcrtypto.mlockSlice(&derived_key);
-    defer pzcrtypto.zeroAndMunlock(&derived_key);
+    const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
+    try aead.decrypt(
+        &kek,
+        &vault.header.kek_ciphertext,
+        vault.header.kek_tag,
+        "",
+        vault.header.kek_nonce,
+        password_key,
+    );
+
+    std.crypto.secureZero(u8, &password_key);
 
     var name_index = NameIndex.init(allocator);
     defer name_index.deinit();
 
-    try name_index.buildEntryNameMap(vault, derived_key);
+    try name_index.buildEntryNameMap(vault, kek);
 
     var iter = name_index.map.iterator();
     while (iter.next()) |item| {
@@ -113,6 +131,6 @@ test "entry map" {
         try expect(item.value_ptr.items.len > 0);
     }
 
-    const value = try name_index.findEntryIds("non_existent", &derived_key);
+    const value = try name_index.findEntryIds("non_existent", &kek);
     try expect(value == null);
 }

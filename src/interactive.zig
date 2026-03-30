@@ -14,9 +14,6 @@ pub fn run(
     out: *std.io.Writer,
     in: *std.io.Reader,
 ) !void {
-    var vault = try Vault.init(allocator);
-    defer vault.deinit(allocator);
-
     var original_termios: std.os.linux.termios = undefined;
     try termios.set_terminal(&original_termios);
     defer termios.reset_terminal(&original_termios);
@@ -24,26 +21,26 @@ pub fn run(
     try out.writeAll("Password: ");
     try out.flush();
 
-    var derived_key: [v1.KEY_LEN]u8 = undefined;
-    try pzcrtypto.mlockSlice(&derived_key);
-    defer pzcrtypto.zeroAndMunlock(&derived_key);
-
-    const master_key = try in.takeDelimiter('\n');
+    const user_password = try in.takeDelimiter('\n');
 
     try out.writeAll("\n\n");
 
-    if (master_key) |key| {
-        derived_key = try pzcrtypto.deriveKey(allocator, key, &vault.header.salt);
-        std.crypto.secureZero(u8, key);
+    var vault = try allocator.create(Vault);
+    defer vault.deinit(allocator);
+
+    if (user_password) |password| {
+        vault = try Vault.init(allocator, password);
+
+        std.crypto.secureZero(u8, password);
     } else {
         try out.writeAll("Null password is not valid.");
     }
 
-    var name_index = NameIndex.init(allocator);
-    defer name_index.deinit();
+    //var name_index = NameIndex.init(allocator);
+    //defer name_index.deinit();
 
-    try name_index.buildEntryNameMap(vault, derived_key);
-    try vault.listEntries(allocator, derived_key, out);
+    // try name_index.buildEntryNameMap(vault, derived_key);
+    try vault.listEntries(allocator, out);
 
     const file_path = try storage.VaultPath.default(allocator, null);
     defer allocator.free(file_path);
@@ -61,7 +58,7 @@ pub fn run(
                 try out.flush();
             },
             'l' => {
-                try vault.listEntries(allocator, derived_key, out);
+                try vault.listEntries(allocator, out);
             },
             'i' => {
                 try out.print("Vault stored as:\n{s}\n", .{file_path});
