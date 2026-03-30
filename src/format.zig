@@ -14,6 +14,9 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     try data.writer(allocator).writeInt(usize, vault.header.iterations, .little);
     try data.writer(allocator).writeInt(u32, vault.header.mem_cost, .little);
     try data.writer(allocator).writeInt(usize, vault.header.parallelism, .little);
+    try data.appendSlice(allocator, &vault.header.kek_nonce);
+    try data.appendSlice(allocator, &vault.header.kek_ciphertext);
+    try data.appendSlice(allocator, &vault.header.kek_tag);
     try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little);
     try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little); // double for control
 
@@ -55,6 +58,16 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
     const iterations = try r.takeInt(usize, .little);
     const mem_cost = try r.takeInt(u32, .little);
     const parallelism = try r.takeInt(usize, .little);
+
+    var nonce: [v1.NONCE_LEN]u8 = undefined;
+    try r.readSliceAll(&nonce);
+
+    var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
+    try r.readSliceAll(&kek_ciphertext);
+
+    var tag: [v1.TAG_LEN]u8 = undefined;
+    try r.readSliceAll(&tag);
+
     const entry_count = try r.takeInt(usize, .little);
     const contr_count = try r.takeInt(usize, .little);
     if (entry_count != contr_count) {
@@ -68,6 +81,9 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         .iterations = iterations,
         .mem_cost = mem_cost,
         .parallelism = parallelism,
+        .kek_nonce = nonce,
+        .kek_ciphertext = kek_ciphertext,
+        .kek_tag = tag,
     };
     vault.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
@@ -123,67 +139,21 @@ test "serialize deserialize" {
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
-    const vault = try Vault.init(allocator);
+    const vault = try Vault.init(allocator, "blue-penguin");
     defer vault.deinit(allocator);
 
-    var salt: [v1.SALT_LEN]u8 = undefined;
-    std.crypto.random.bytes(&salt);
-
-    var key: [v1.KEY_LEN]u8 = try pzcrypt.deriveKey(allocator, "blue-penguin", &salt);
-    try pzcrypt.mlockSlice(&key);
-    defer pzcrypt.zeroAndMunlock(&key);
-
     for (0..3) |_| {
-        const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
-        defer allocator.free(nonce_name);
-
-        const nonce_data = try allocator.alloc(u8, v1.NONCE_LEN);
-        defer allocator.free(nonce_data);
-
         const name = try allocator.alloc(u8, 20);
         defer allocator.free(name);
 
         const data = try allocator.alloc(u8, 100);
         defer allocator.free(data);
 
-        const tag_name = try allocator.alloc(u8, v1.TAG_LEN);
-        defer allocator.free(tag_name);
-
-        const tag_data = try allocator.alloc(u8, v1.TAG_LEN);
-        defer allocator.free(tag_data);
-
-        std.crypto.random.bytes(nonce_name);
-        std.crypto.random.bytes(nonce_data);
-
         std.crypto.random.bytes(name);
         std.crypto.random.bytes(data);
 
-        std.crypto.random.bytes(tag_name);
-        std.crypto.random.bytes(tag_data);
-
-        var entry: Vault.Entry = .{
-            .id = vault.entries.items.len,
-            .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
-            .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
-            .ciphertext_name = try allocator.dupe(u8, name),
-            .ciphertext_data = try allocator.dupe(u8, data),
-            .tag_name = tag_name[0..v1.TAG_LEN].*,
-            .tag_data = tag_data[0..v1.TAG_LEN].*,
-        };
-
-        pzcrypt.encrypt(&entry, key, name, data);
-
-        try vault.entries.append(allocator, entry);
+        try vault.addEntry(allocator, name, data);
     }
-
-    vault.header = .{
-        .magic = config.MAGIC,
-        .version = config.VERSION,
-        .salt = salt,
-        .iterations = v1.ITERATIONS,
-        .mem_cost = v1.MEM_COST,
-        .parallelism = v1.PARALLELISM,
-    };
 
     const vault_serialized = try serializeVault(allocator, vault);
     defer allocator.free(vault_serialized);
@@ -195,6 +165,9 @@ test "serialize deserialize" {
 
     try expectEqualSlices(u8, &vault_deserialized.header.magic, &config.MAGIC);
     try expectEqualSlices(u8, &vault_deserialized.header.salt, &vault.header.salt);
+    try expectEqualSlices(u8, &vault_deserialized.header.kek_ciphertext, &vault.header.kek_ciphertext);
+    try expectEqualSlices(u8, &vault_deserialized.header.kek_nonce, &vault.header.kek_nonce);
+    try expectEqualSlices(u8, &vault_deserialized.header.kek_tag, &vault.header.kek_tag);
     try expect(vault_deserialized.header.iterations == vault.header.iterations);
     try expect(vault_deserialized.header.mem_cost == vault.header.mem_cost);
     try expect(vault_deserialized.header.parallelism == vault.header.parallelism);
@@ -226,6 +199,9 @@ test "serialize deserialize" {
 
     try expectEqualSlices(u8, &vault_from_file.header.magic, &config.MAGIC);
     try expectEqualSlices(u8, &vault_from_file.header.salt, &vault.header.salt);
+    try expectEqualSlices(u8, &vault_from_file.header.kek_ciphertext, &vault.header.kek_ciphertext);
+    try expectEqualSlices(u8, &vault_from_file.header.kek_nonce, &vault.header.kek_nonce);
+    try expectEqualSlices(u8, &vault_from_file.header.kek_tag, &vault.header.kek_tag);
     try expect(vault_from_file.header.iterations == vault.header.iterations);
     try expect(vault_from_file.header.mem_cost == vault.header.mem_cost);
     try expect(vault_from_file.header.parallelism == vault.header.parallelism);

@@ -61,7 +61,7 @@ pub fn decrypt(
     entry: *const Vault.Entry,
     key: [v1.KEY_LEN]u8,
     name: []u8,
-    plaintext: []u8,
+    data: []u8,
 ) !void {
     const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
@@ -75,7 +75,7 @@ pub fn decrypt(
     );
 
     try aead.decrypt(
-        plaintext,
+        data,
         entry.ciphertext_data,
         entry.tag_data,
         "",
