@@ -46,17 +46,18 @@ pub const Vault = struct {
         try pzcrypt.mlockSlice(&self.vault_key);
 
         const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-        aead.decrypt(
+        try aead.decrypt(
             &self.vault_key,
             &self.header.kek_ciphertext,
             self.header.kek_tag,
             "",
             self.header.kek_nonce,
             kek,
-        ) catch |err| {
-            std.debug.print("In listEntries: {}\n", .{err});
-            return err;
-        };
+        );
+
+        if (std.mem.eql(u8, &kek, &self.vault_key)) {
+            return error.KekIsVaultKey;
+        }
 
         return self;
     }
@@ -77,9 +78,9 @@ pub const Vault = struct {
 
         var tag: [v1.TAG_LEN]u8 = undefined;
 
-        self.vault_key = try pzcrypt.deriveKey(allocator, password, &salt);
-        try pzcrypt.mlockSlice(&self.vault_key);
-        defer pzcrypt.zeroAndMunlock(&self.vault_key);
+        var password_key = try pzcrypt.deriveKey(allocator, password, &salt);
+        try pzcrypt.mlockSlice(&password_key);
+        defer pzcrypt.zeroAndMunlock(&password_key);
 
         var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
         const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -89,7 +90,7 @@ pub const Vault = struct {
             &self.vault_key,
             "",
             nonce,
-            self.vault_key,
+            password_key,
         );
 
         self.header = .{
