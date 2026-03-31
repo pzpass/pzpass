@@ -40,12 +40,11 @@ pub const NameIndex = struct {
     pub fn buildEntryNameMap(
         self: *NameIndex,
         vault: *Vault,
-        master_key: [v1.KEY_LEN]u8,
     ) !void {
         for (vault.entries.items) |item| {
-            const name = try decryptEntryName(item, master_key);
+            const name = try decryptEntryName(item, vault.vault_key);
             defer pzcrypt.zeroAndMunlock(name);
-            var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(&master_key);
+            var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(&vault.vault_key);
             hmac.update(name);
             var hash: [32]u8 = undefined;
             hmac.final(&hash);
@@ -54,26 +53,17 @@ pub const NameIndex = struct {
         }
     }
 
-    pub fn findEntryIds(self: *NameIndex, name: []const u8, master_key: []const u8) !?std.ArrayList(usize) {
-        var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(master_key);
+    pub fn findEntryIds(
+        self: *NameIndex,
+        vault: *Vault,
+        name: []const u8,
+    ) !?std.ArrayList(usize) {
+        var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(&vault.vault_key);
         hmac.update(name);
         var hash: [32]u8 = undefined;
         hmac.final(&hash);
 
         return self.map.get(hash);
-    }
-
-    fn deriveNameKey(master_key: [32]u8) [32]u8 {
-        var out: [32]u8 = undefined;
-
-        std.crypto.kdf.hkdf.sha3.HkdfSha3_256.extractAndExpand(
-            &out,
-            "name-index-key",
-            &master_key,
-            "",
-        );
-
-        return out;
     }
 };
 
@@ -84,7 +74,7 @@ fn decryptEntryName(entry: Vault.Entry, key: [v1.KEY_LEN]u8) ![]u8 {
     }
     const name = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
     try pzcrypt.mlockSlice(name);
-    const data = try std.heap.page_allocator.alloc(u8, entry.ciphertext_name.len);
+    const data = try std.heap.page_allocator.alloc(u8, entry.ciphertext_data.len);
     try pzcrypt.mlockSlice(data);
     // pretend decryption here
     try pzcrypt.decrypt(&entry, key, name, data);
@@ -95,35 +85,13 @@ test "entry map" {
     const allocator = std.testing.allocator;
     const expect = std.testing.expect;
 
-    var vault = try allocator.create(Vault);
-
-    var kek: [v1.KEY_LEN]u8 = undefined;
-    try pzcrypt.mlockSlice(&kek);
-    defer pzcrypt.zeroAndMunlock(&kek);
-
-    var password_key: [v1.KEY_LEN]u8 = try pzcrypt.deriveKey(allocator, "blue-penguin", &vault.header.salt);
-    try pzcrypt.mlockSlice(&password_key);
-    defer pzcrypt.zeroAndMunlock(&password_key);
-
-    vault = try Vault.init(allocator, password_key);
+    var vault = try Vault.init(allocator, "blue-penguin");
     defer vault.deinit(allocator);
-
-    const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-    try aead.decrypt(
-        &kek,
-        &vault.header.kek_ciphertext,
-        vault.header.kek_tag,
-        "",
-        vault.header.kek_nonce,
-        password_key,
-    );
-
-    std.crypto.secureZero(u8, &password_key);
 
     var name_index = NameIndex.init(allocator);
     defer name_index.deinit();
 
-    try name_index.buildEntryNameMap(vault, kek);
+    try name_index.buildEntryNameMap(vault);
 
     var iter = name_index.map.iterator();
     while (iter.next()) |item| {
@@ -131,6 +99,6 @@ test "entry map" {
         try expect(item.value_ptr.items.len > 0);
     }
 
-    const value = try name_index.findEntryIds("non_existent", &kek);
+    const value = try name_index.findEntryIds(vault, "non_existent");
     try expect(value == null);
 }
