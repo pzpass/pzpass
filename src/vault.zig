@@ -28,9 +28,9 @@ pub const Vault = struct {
         ciphertext_data: []u8,
     };
 
-    header: Header,
+    vault_key: [v1.KEY_LEN]u8,
     entries: std.ArrayList(Entry),
-    password_key: [v1.KEY_LEN]u8,
+    header: Header,
 
     pub fn init(allocator: std.mem.Allocator, password: []const u8) !*Vault {
         var self = try allocator.create(Vault);
@@ -39,7 +39,24 @@ pub const Vault = struct {
 
         self.fromFile(allocator) catch try self.new(allocator, password);
 
-        self.password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        var kek = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        try pzcrypt.mlockSlice(&kek);
+        defer pzcrypt.zeroAndMunlock(&kek);
+
+        try pzcrypt.mlockSlice(&self.vault_key);
+
+        const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
+        aead.decrypt(
+            &self.vault_key,
+            &self.header.kek_ciphertext,
+            self.header.kek_tag,
+            "",
+            self.header.kek_nonce,
+            kek,
+        ) catch |err| {
+            std.debug.print("In listEntries: {}\n", .{err});
+            return err;
+        };
 
         return self;
     }
@@ -49,30 +66,30 @@ pub const Vault = struct {
         allocator: std.mem.Allocator,
         password: []const u8,
     ) !void {
+        std.crypto.random.bytes(&self.vault_key);
+        try pzcrypt.mlockSlice(&self.vault_key);
+
         var salt: [v1.SALT_LEN]u8 = undefined;
         std.crypto.random.bytes(&salt);
 
         var nonce: [v1.NONCE_LEN]u8 = undefined;
         std.crypto.random.bytes(&nonce);
 
-        var kek: [v1.KEY_LEN]u8 = undefined;
-        std.crypto.random.bytes(&kek);
-
         var tag: [v1.TAG_LEN]u8 = undefined;
 
-        self.password_key = try pzcrypt.deriveKey(allocator, password, &salt);
-        try pzcrypt.mlockSlice(&self.password_key);
-        defer pzcrypt.zeroAndMunlock(&self.password_key);
+        self.vault_key = try pzcrypt.deriveKey(allocator, password, &salt);
+        try pzcrypt.mlockSlice(&self.vault_key);
+        defer pzcrypt.zeroAndMunlock(&self.vault_key);
 
         var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
         const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
         aead.encrypt(
             &kek_ciphertext,
             &tag,
-            &kek,
+            &self.vault_key,
             "",
             nonce,
-            self.password_key,
+            self.vault_key,
         );
 
         self.header = .{
@@ -99,6 +116,7 @@ pub const Vault = struct {
     }
 
     pub fn deinit(self: *Vault, allocator: std.mem.Allocator) void {
+        pzcrypt.zeroAndMunlock(&self.vault_key);
         for (self.entries.items) |item| {
             allocator.free(item.ciphertext_name);
             allocator.free(item.ciphertext_data);
@@ -126,23 +144,6 @@ pub const Vault = struct {
         allocator: std.mem.Allocator,
         out: *std.io.Writer,
     ) !void {
-        var kek: [v1.KEY_LEN]u8 = undefined;
-        try pzcrypt.mlockSlice(&kek);
-        defer pzcrypt.zeroAndMunlock(&kek);
-
-        const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-        aead.decrypt(
-            &kek,
-            &self.header.kek_ciphertext,
-            self.header.kek_tag,
-            "",
-            self.header.kek_nonce,
-            self.password_key,
-        ) catch |err| {
-            std.debug.print("In listEntries: {}\n", .{err});
-            return err;
-        };
-
         for (self.entries.items) |item| {
             const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
             try pzcrypt.mlockSlice(name);
@@ -158,7 +159,7 @@ pub const Vault = struct {
                 allocator.free(data);
             }
 
-            try pzcrypt.decrypt(&item, kek, name, data);
+            try pzcrypt.decrypt(&item, self.vault_key, name, data);
             try out.print("{d: >5}: {x}\n", .{ item.id, name });
         }
         try out.writeAll(
@@ -205,24 +206,7 @@ pub const Vault = struct {
             .tag_data = tag_data[0..v1.TAG_LEN].*,
         };
 
-        var kek: [v1.KEY_LEN]u8 = undefined;
-        try pzcrypt.mlockSlice(&kek);
-        defer pzcrypt.zeroAndMunlock(&kek);
-
-        const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-        aead.decrypt(
-            &kek,
-            &self.header.kek_ciphertext,
-            self.header.kek_tag,
-            "",
-            self.header.kek_nonce,
-            self.password_key,
-        ) catch |err| {
-            std.debug.print("In addEntry: {}\n", .{err});
-            return err;
-        };
-
-        pzcrypt.encrypt(&entry, kek, name, data);
+        pzcrypt.encrypt(&entry, self.vault_key, name, data);
 
         try self.entries.append(allocator, entry);
     }

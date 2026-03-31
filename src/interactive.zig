@@ -7,7 +7,7 @@ const v1 = @import("config.zig").v1;
 const format = @import("format.zig");
 const storage = @import("storage.zig");
 const termios = @import("termios.zig");
-const pzcrtypto = @import("crypto.zig");
+const pzcrypt = @import("crypto.zig");
 
 pub fn run(
     allocator: std.mem.Allocator,
@@ -18,6 +18,9 @@ pub fn run(
     try termios.set_terminal(&original_termios);
     defer termios.reset_terminal(&original_termios);
 
+    var vault = try allocator.create(Vault);
+    defer vault.deinit(allocator);
+
     try out.writeAll("Password: ");
     try out.flush();
 
@@ -25,10 +28,10 @@ pub fn run(
 
     try out.writeAll("\n\n");
 
-    var vault = try allocator.create(Vault);
-    defer vault.deinit(allocator);
-
     if (user_password) |password| {
+        try pzcrypt.mlockSlice(password);
+        defer pzcrypt.zeroAndMunlock(password);
+
         vault = try Vault.init(allocator, password);
 
         std.crypto.secureZero(u8, password);
@@ -36,10 +39,10 @@ pub fn run(
         try out.writeAll("Null password is not valid.");
     }
 
-    //var name_index = NameIndex.init(allocator);
-    //defer name_index.deinit();
+    var name_index = NameIndex.init(allocator);
+    defer name_index.deinit();
 
-    // try name_index.buildEntryNameMap(vault, derived_key);
+    try name_index.buildEntryNameMap(vault);
     try vault.listEntries(allocator, out);
 
     const file_path = try storage.VaultPath.default(allocator, null);

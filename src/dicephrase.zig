@@ -1,5 +1,5 @@
 const std = @import("std");
-const crypto = @import("crypto.zig");
+const pzcrypt = @import("crypto.zig");
 const termios = @import("termios.zig");
 const words = @import("dicelist.zig").dice_words;
 
@@ -20,7 +20,7 @@ pub fn runPassphraseGenerator(
 
         const dicephrase = try generateDicePhrase(allocator, word_count);
         defer {
-            crypto.zeroAndMunlock(dicephrase);
+            pzcrypt.zeroAndMunlock(dicephrase);
             allocator.free(dicephrase);
         }
         try out.print("{s}\n", .{dicephrase});
@@ -57,7 +57,7 @@ pub fn generateDicePhrase(
     }
 
     const passphrase = try std.mem.join(allocator, "-", selected.items);
-    try crypto.mlockSlice(passphrase);
+    try pzcrypt.mlockSlice(passphrase);
     return passphrase;
 }
 
