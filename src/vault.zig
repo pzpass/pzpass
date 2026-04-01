@@ -46,14 +46,17 @@ pub const Vault = struct {
         try pzcrypt.mlockSlice(&self.vault_key);
 
         const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-        try aead.decrypt(
+        aead.decrypt(
             &self.vault_key,
             &self.header.kek_ciphertext,
             self.header.kek_tag,
             "",
             self.header.kek_nonce,
             kek,
-        );
+        ) catch |err| {
+            self.deinit(allocator);
+            return err;
+        };
 
         if (std.mem.eql(u8, &kek, &self.vault_key)) {
             return error.KekIsVaultKey;
@@ -210,6 +213,33 @@ pub const Vault = struct {
         pzcrypt.encrypt(&entry, self.vault_key, name, data);
 
         try self.entries.append(allocator, entry);
+    }
+
+    pub fn addEntryInteractive(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        out: *std.io.Writer,
+        in: *std.io.Reader,
+    ) !void {
+        try out.writeAll("New entry name:");
+        try out.flush();
+        const name_slice = try in.takeDelimiter('\n');
+        const name = if (name_slice) |ns| try allocator.dupe(u8, ns) else return error.UnexpectedString;
+
+        defer allocator.free(name);
+
+        try out.writeAll("\nNew entry data:");
+        try out.flush();
+        const data_slice = try in.takeDelimiter('\n');
+        const data = if (data_slice) |ds| try allocator.dupe(u8, ds) else return error.UnexpectedString;
+        defer allocator.free(data);
+
+        try out.writeAll("\n");
+        try out.flush();
+
+        try self.addEntry(allocator, name, data);
+        std.crypto.secureZero(u8, name);
+        std.crypto.secureZero(u8, data);
     }
 };
 
