@@ -4,6 +4,7 @@ const v1 = config.v1;
 const storage = @import("storage.zig");
 const format = @import("format.zig");
 const pzcrypt = @import("crypto.zig");
+const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
 pub const Vault = struct {
     pub const Header = struct {
@@ -34,42 +35,36 @@ pub const Vault = struct {
 
     pub fn init(allocator: std.mem.Allocator, password: []const u8) !*Vault {
         var self = try allocator.create(Vault);
-
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
 
         self.fromFile(allocator) catch try self.new(allocator, password);
 
-        var kek = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
-        try pzcrypt.mlockSlice(&kek);
-        defer pzcrypt.zeroAndMunlock(&kek);
+        var password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        try pzcrypt.mlockSlice(&password_key);
+        defer pzcrypt.zeroAndMunlock(&password_key);
 
         try pzcrypt.mlockSlice(&self.vault_key);
 
-        const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
         aead.decrypt(
             &self.vault_key,
             &self.header.kek_ciphertext,
             self.header.kek_tag,
             "",
             self.header.kek_nonce,
-            kek,
+            password_key,
         ) catch |err| {
             self.deinit(allocator);
             return err;
         };
 
-        if (std.mem.eql(u8, &kek, &self.vault_key)) {
+        if (std.mem.eql(u8, &password_key, &self.vault_key)) {
             return error.KekIsVaultKey;
         }
 
         return self;
     }
 
-    fn new(
-        self: *Vault,
-        allocator: std.mem.Allocator,
-        password: []const u8,
-    ) !void {
+    fn new(self: *Vault, allocator: std.mem.Allocator, password: []const u8) !void {
         std.crypto.random.bytes(&self.vault_key);
         try pzcrypt.mlockSlice(&self.vault_key);
 
@@ -81,21 +76,6 @@ pub const Vault = struct {
 
         var tag: [v1.TAG_LEN]u8 = undefined;
 
-        var password_key = try pzcrypt.deriveKey(allocator, password, &salt);
-        try pzcrypt.mlockSlice(&password_key);
-        defer pzcrypt.zeroAndMunlock(&password_key);
-
-        var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
-        const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-        aead.encrypt(
-            &kek_ciphertext,
-            &tag,
-            &self.vault_key,
-            "",
-            nonce,
-            password_key,
-        );
-
         self.header = .{
             .magic = config.MAGIC,
             .version = config.VERSION,
@@ -104,9 +84,23 @@ pub const Vault = struct {
             .mem_cost = v1.MEM_COST,
             .parallelism = v1.PARALLELISM,
             .kek_nonce = nonce,
-            .kek_ciphertext = kek_ciphertext,
+            .kek_ciphertext = undefined,
             .kek_tag = tag,
         };
+
+        var password_key = try pzcrypt.deriveKey(allocator, password, &salt);
+        try pzcrypt.mlockSlice(&password_key);
+        defer pzcrypt.zeroAndMunlock(&password_key);
+
+        var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
+        aead.encrypt(
+            &kek_ciphertext,
+            &tag,
+            &self.vault_key,
+            "",
+            nonce,
+            password_key,
+        );
     }
 
     fn fromFile(self: *Vault, allocator: std.mem.Allocator) !void {
@@ -245,9 +239,6 @@ pub const Vault = struct {
 
 test "init" {
     const allocator = std.testing.allocator;
-
-    var salt: [v1.SALT_LEN]u8 = undefined;
-    std.crypto.random.bytes(&salt);
 
     var vault = try Vault.init(allocator, "blue-penguin");
     defer vault.deinit(allocator);
