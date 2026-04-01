@@ -39,8 +39,8 @@ pub const Vault = struct {
 
         self.fromFile(allocator) catch try self.new(allocator, password);
 
-        var password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
-        try pzcrypt.mlockSlice(&password_key);
+        const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        try pzcrypt.mlockSlice(@constCast(&password_key));
         defer pzcrypt.zeroAndMunlock(&password_key);
 
         try pzcrypt.mlockSlice(&self.vault_key);
@@ -68,43 +68,41 @@ pub const Vault = struct {
         std.crypto.random.bytes(&self.vault_key);
         try pzcrypt.mlockSlice(&self.vault_key);
 
-        var salt: [v1.SALT_LEN]u8 = undefined;
-        std.crypto.random.bytes(&salt);
-
-        var nonce: [v1.NONCE_LEN]u8 = undefined;
-        std.crypto.random.bytes(&nonce);
-
-        var tag: [v1.TAG_LEN]u8 = undefined;
-
         self.header = .{
             .magic = config.MAGIC,
             .version = config.VERSION,
-            .salt = salt,
+            .salt = undefined,
             .iterations = v1.ITERATIONS,
             .mem_cost = v1.MEM_COST,
             .parallelism = v1.PARALLELISM,
-            .kek_nonce = nonce,
+            .kek_nonce = undefined,
             .kek_ciphertext = undefined,
-            .kek_tag = tag,
+            .kek_tag = undefined,
         };
 
-        var password_key = try pzcrypt.deriveKey(allocator, password, &salt);
-        try pzcrypt.mlockSlice(&password_key);
+        std.crypto.random.bytes(&self.header.salt);
+        std.crypto.random.bytes(&self.header.kek_nonce);
+
+        const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        try pzcrypt.mlockSlice(@constCast(&password_key));
         defer pzcrypt.zeroAndMunlock(&password_key);
 
-        var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
         aead.encrypt(
-            &kek_ciphertext,
-            &tag,
+            &self.header.kek_ciphertext,
+            &self.header.kek_tag,
             &self.vault_key,
             "",
-            nonce,
+            self.header.kek_nonce,
             password_key,
         );
     }
 
     fn fromFile(self: *Vault, allocator: std.mem.Allocator) !void {
-        const file_path = try storage.VaultPath.default(allocator, null);
+        const is_test = @import("builtin").is_test;
+        const file_path = if (is_test)
+            try storage.VaultPath.testing(allocator, null)
+        else
+            try storage.VaultPath.default(allocator, null);
         defer allocator.free(file_path);
 
         const data_from_file = try storage.readFileAlloc(allocator, file_path);
