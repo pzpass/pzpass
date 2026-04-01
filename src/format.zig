@@ -138,19 +138,17 @@ test "serialize deserialize" {
     const allocator = std.testing.allocator;
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
+    const dice = @import("dicephrase.zig");
 
     const vault = try Vault.init(allocator, "blue-penguin");
     defer vault.deinit(allocator);
 
     for (0..3) |_| {
-        const name = try allocator.alloc(u8, 20);
+        const name = try dice.generateDicePhrase(allocator, 2);
         defer allocator.free(name);
 
-        const data = try allocator.alloc(u8, 100);
+        const data = try dice.generateDicePhrase(allocator, 5);
         defer allocator.free(data);
-
-        std.crypto.random.bytes(name);
-        std.crypto.random.bytes(data);
 
         try vault.addEntry(allocator, name, data);
     }

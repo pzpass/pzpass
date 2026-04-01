@@ -1,6 +1,7 @@
 const std = @import("std");
 const Vault = @import("vault.zig").Vault;
 const v1 = @import("config.zig").v1;
+const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
 pub fn randomBytes(buf: []u8) void {
     std.crypto.random.bytes(buf);
@@ -34,10 +35,8 @@ pub fn encrypt(
     entry: *Vault.Entry,
     key: [v1.KEY_LEN]u8,
     name: []const u8,
-    plaintext: []const u8,
+    data: []const u8,
 ) void {
-    const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-
     aead.encrypt(
         entry.ciphertext_name,
         &entry.tag_name,
@@ -50,7 +49,7 @@ pub fn encrypt(
     aead.encrypt(
         entry.ciphertext_data,
         &entry.tag_data,
-        plaintext,
+        data,
         "",
         entry.nonce_data,
         key,
@@ -63,8 +62,6 @@ pub fn decrypt(
     name: []u8,
     data: []u8,
 ) !void {
-    const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-
     try aead.decrypt(
         name,
         entry.ciphertext_name,
