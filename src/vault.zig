@@ -161,7 +161,7 @@ pub const Vault = struct {
             }
 
             try pzcrypt.decrypt(&item, self.vault_key, name, data);
-            try out.print("{d: >5}: {x}\n", .{ item.id, name });
+            try out.print("{d: >5}: {s}\n", .{ item.id, name });
         }
         try out.writeAll(
             \\
