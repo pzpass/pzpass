@@ -57,24 +57,7 @@ pub fn run(
             '\n', '\r' => {},
             27, 'q' => break,
             'a' => {
-                try out.writeAll("New entry name:");
-                try out.flush();
-                const name_slice = try in.takeDelimiter('\n');
-                const name = if (name_slice) |ns| try allocator.dupe(u8, ns) else return error.UnexpectedString;
-
-                defer allocator.free(name);
-
-                try out.writeAll("\nNew entry data:");
-                try out.flush();
-                const data_slice = try in.takeDelimiter('\n');
-                const data = if (data_slice) |ds| try allocator.dupe(u8, ds) else return error.UnexpectedString;
-
-                try out.writeAll("\n");
-                try out.flush();
-
-                try vault.addEntry(allocator, name, data);
-                std.crypto.secureZero(u8, name);
-                std.crypto.secureZero(u8, data);
+                try vault.addEntryInteractive(allocator, out, in);
             },
             'l' => {
                 try vault.listEntries(allocator, out);
