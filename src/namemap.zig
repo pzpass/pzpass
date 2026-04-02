@@ -41,7 +41,7 @@ pub const NameIndex = struct {
         self: *NameIndex,
         vault: *Vault,
     ) !void {
-        for (vault.entries.items) |item| {
+        for (vault.entries.items, 0..) |item, index| {
             const name = try decryptEntryName(item, vault.vault_key);
             defer pzcrypt.zeroAndMunlock(name);
             var hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(&vault.vault_key);
@@ -49,7 +49,7 @@ pub const NameIndex = struct {
             var hash: [32]u8 = undefined;
             hmac.final(&hash);
 
-            try self.insert(hash, item.id);
+            try self.insert(hash, index);
         }
     }
 

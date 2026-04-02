@@ -21,8 +21,6 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little); // double for control
 
     for (vault.entries.items) |entry| {
-        try data.writer(allocator).writeInt(usize, entry.id, .little);
-
         try data.writer(allocator).writeInt(usize, entry.ciphertext_name.len, .little);
         try data.writer(allocator).writeInt(usize, entry.ciphertext_data.len, .little);
 
@@ -88,8 +86,6 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
     vault.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
     for (0..entry_count) |_| {
-        const id = try r.takeInt(usize, .little);
-
         const name_len = try r.takeInt(usize, .little);
         const data_len = try r.takeInt(usize, .little);
 
@@ -118,7 +114,6 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         try r.readSliceAll(tag_data);
 
         const entry: Vault.Entry = .{
-            .id = id,
             .tag_name = tag_name[0..v1.TAG_LEN].*,
             .tag_data = tag_data[0..v1.TAG_LEN].*,
             .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
@@ -171,7 +166,6 @@ test "serialize deserialize" {
     try expect(vault_deserialized.header.parallelism == vault.header.parallelism);
 
     for (vault.entries.items, vault_deserialized.entries.items) |entry, ff| {
-        try expect(entry.id == ff.id);
         try expectEqualSlices(u8, &entry.nonce_name, &ff.nonce_name);
         try expectEqualSlices(u8, entry.ciphertext_name, ff.ciphertext_name);
         try expectEqualSlices(u8, &entry.tag_name, &ff.tag_name);
@@ -205,7 +199,6 @@ test "serialize deserialize" {
     try expect(vault_from_file.header.parallelism == vault.header.parallelism);
 
     for (vault.entries.items, vault_from_file.entries.items) |entry, ff| {
-        try expect(entry.id == ff.id);
         try expectEqualSlices(u8, &entry.nonce_name, &ff.nonce_name);
         try expectEqualSlices(u8, entry.ciphertext_name, ff.ciphertext_name);
         try expectEqualSlices(u8, &entry.tag_name, &ff.tag_name);

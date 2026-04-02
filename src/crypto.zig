@@ -129,8 +129,6 @@ test "derive key" {
     entry.ciphertext_data = try allocator.alloc(u8, data.len);
     defer allocator.free(entry.ciphertext_data);
 
-    entry.id = std.crypto.random.int(usize);
-
     encrypt(entry, derived_key, name, data);
 
     var decrypted_name: [name.len]u8 = undefined;

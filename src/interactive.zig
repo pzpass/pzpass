@@ -43,7 +43,7 @@ pub fn run(
     defer name_index.deinit();
 
     try name_index.buildEntryNameMap(vault);
-    try vault.listEntries(allocator, out);
+    try vault.listEntries(allocator, out, null);
 
     const file_path = try storage.VaultPath.default(allocator, null);
     defer allocator.free(file_path);
@@ -59,12 +59,18 @@ pub fn run(
             'a' => {
                 try vault.addEntryInteractive(allocator, out, in);
             },
+            'd' => {
+                try vault.deleteEntryInteractive(allocator, out, in);
+            },
             'l' => {
-                try vault.listEntries(allocator, out);
+                try vault.listEntries(allocator, out, null);
             },
             'i' => {
                 try out.print("Vault stored as:\n{s}\n", .{file_path});
-                try out.flush();
+            },
+            's' => {
+                try vault.save(allocator, file_path);
+                try out.writeAll("Vault saved to disk.\n");
             },
             'h' => {
                 try Vault.help(out);
@@ -72,14 +78,12 @@ pub fn run(
             },
             else => show_help_enabled = try show_help(show_help_enabled, out),
         }
+        try out.flush();
     }
 
-    const vault_serialized = try format.serializeVault(allocator, vault);
-    defer allocator.free(vault_serialized);
+    try vault.save(allocator, file_path);
 
     try out.flush();
-
-    try storage.writeFile(file_path, vault_serialized);
 }
 
 fn show_help(enabled: bool, out: *std.io.Writer) !bool {
