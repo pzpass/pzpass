@@ -15,18 +15,20 @@ pub fn run(
     in: *std.io.Reader,
 ) !void {
     var original_termios: std.os.linux.termios = undefined;
-    try termios.set_terminal(&original_termios);
     defer termios.reset_terminal(&original_termios);
 
     var vault = try allocator.create(Vault);
     defer vault.deinit(allocator);
 
-    try out.writeAll("Password: ");
+    try out.writeAll("\x1b[33mPassword:\x1b[0m ");
     try out.flush();
 
+    try termios.set_terminal_pasword(&original_termios);
     const user_password = try in.takeDelimiter('\n');
+    termios.reset_terminal(&original_termios);
+    try termios.set_terminal(&original_termios);
 
-    try out.writeAll("\n\n");
+    try out.writeAll("\n");
 
     if (user_password) |password| {
         try pzcrypt.mlockSlice(password);
@@ -57,20 +59,34 @@ pub fn run(
             '\n', '\r' => {},
             27, 'q' => break,
             'a' => {
+                termios.reset_terminal(&original_termios);
                 try vault.addEntryInteractive(allocator, out, in);
+                try termios.set_terminal(&original_termios);
             },
             'd' => {
+                termios.reset_terminal(&original_termios);
                 try vault.deleteEntryInteractive(allocator, out, in);
+                try termios.set_terminal(&original_termios);
             },
             'l' => {
                 try vault.listEntries(allocator, out, null);
             },
+            'f' => {
+                termios.reset_terminal(&original_termios);
+                try vault.findEntryInteractive(allocator, out, in);
+                try termios.set_terminal(&original_termios);
+            },
+            'o' => {
+                termios.reset_terminal(&original_termios);
+                try vault.openEntryInteractive(allocator, out, in);
+                try termios.set_terminal(&original_termios);
+            },
             'i' => {
-                try out.print("Vault stored as:\n{s}\n", .{file_path});
+                try out.print("\x1b[33mVault stored as:\n{s}\x1b[0m\n", .{file_path});
             },
             's' => {
                 try vault.save(allocator, file_path);
-                try out.writeAll("Vault saved to disk.\n");
+                try out.writeAll("\x1b[33mVault saved to disk.\x1b[0m\n");
             },
             'h' => {
                 try Vault.help(out);
