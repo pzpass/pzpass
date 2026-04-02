@@ -129,6 +129,7 @@ pub const Vault = struct {
             \\      'o' open an entry
             \\      'i' show the vault info
             \\      's' save the vault
+            \\      'u' update vault password
             \\      'q' quit the app
             \\      'h' see this help
             \\
