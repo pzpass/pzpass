@@ -20,7 +20,6 @@ pub const Vault = struct {
     };
 
     pub const Entry = struct {
-        id: usize,
         nonce_name: [v1.NONCE_LEN]u8,
         nonce_data: [v1.NONCE_LEN]u8,
         tag_name: [v1.TAG_LEN]u8,
@@ -127,6 +126,7 @@ pub const Vault = struct {
             \\Press 'a' to add an entry,
             \\      'l' to list entries,
             \\      'i' to show the vault info,
+            \\      'i' to save the vault,
             \\      'q' to quit the app,
             \\      'h' to see this help
             \\
@@ -139,8 +139,9 @@ pub const Vault = struct {
         self: *Vault,
         allocator: std.mem.Allocator,
         out: *std.io.Writer,
+        filter: ?[]const u8,
     ) !void {
-        for (self.entries.items) |item| {
+        for (self.entries.items, 0..) |item, index| {
             const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
             try pzcrypt.mlockSlice(name);
             defer {
@@ -156,11 +157,17 @@ pub const Vault = struct {
             }
 
             try pzcrypt.decrypt(&item, self.vault_key, name, data);
-            try out.print("{d: >5}: {s}\n", .{ item.id, name });
+            if (filter) |actual_filter| {
+                if (std.mem.containsAtLeast(u8, name, 1, actual_filter))
+                    try out.print("{d: >5}: {s}\n", .{ index, name });
+            } else {
+                try out.print("{d: >5}: {s}\n", .{ index, name });
+            }
         }
-        try out.writeAll(
-            \\
-        );
+        if (self.entries.items.len == 0) {
+            try out.writeAll("Vault has no entries.");
+        }
+        try out.writeAll("\n");
         try out.flush();
     }
 
@@ -193,7 +200,6 @@ pub const Vault = struct {
         const ciphertext_data = try allocator.alloc(u8, data.len);
 
         var entry: Vault.Entry = .{
-            .id = self.entries.items.len,
             .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
             .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
             .ciphertext_name = ciphertext_name,
@@ -213,25 +219,97 @@ pub const Vault = struct {
         out: *std.io.Writer,
         in: *std.io.Reader,
     ) !void {
-        try out.writeAll("New entry name:");
-        try out.flush();
-        const name_slice = try in.takeDelimiter('\n');
-        const name = if (name_slice) |ns| try allocator.dupe(u8, ns) else return error.UnexpectedString;
-
+        var name: []const u8 = undefined;
         defer allocator.free(name);
 
-        try out.writeAll("\nNew entry data:");
+        while (true) {
+            try out.writeAll("New entry name:");
+            try out.flush();
+            const name_slice = try in.takeDelimiter('\n');
+            if (name_slice) |ns| {
+                name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
+                if (name.len > 0) break else {
+                    try out.writeAll("\n");
+                    try out.flush();
+                }
+            }
+        }
+        try out.writeAll("\n");
         try out.flush();
-        const data_slice = try in.takeDelimiter('\n');
-        const data = if (data_slice) |ds| try allocator.dupe(u8, ds) else return error.UnexpectedString;
+
+        var data: []const u8 = undefined;
         defer allocator.free(data);
 
+        while (true) {
+            try out.writeAll("New entry data:");
+            try out.flush();
+            const data_slice = try in.takeDelimiter('\n');
+            if (data_slice) |ds| {
+                data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
+                if (data.len > 0) break else {
+                    try out.writeAll("\n");
+                    try out.flush();
+                }
+            }
+        }
         try out.writeAll("\n");
         try out.flush();
 
         try self.addEntry(allocator, name, data);
-        std.crypto.secureZero(u8, name);
-        std.crypto.secureZero(u8, data);
+        try out.writeAll("Entry added successfully.\n");
+        try out.flush();
+        std.crypto.secureZero(u8, @constCast(name));
+        std.crypto.secureZero(u8, @constCast(data));
+    }
+
+    pub fn deleteEntry(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        index: usize,
+    ) !void {
+        if (index < 0 or index >= self.entries.items.len) {
+            return error.OutOfBounbds;
+        }
+        const entry = self.entries.orderedRemove(index);
+        allocator.free(entry.ciphertext_name);
+        allocator.free(entry.ciphertext_data);
+    }
+
+    pub fn deleteEntryInteractive(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        out: *std.io.Writer,
+        in: *std.io.Reader,
+    ) !void {
+        try out.writeAll("Delete item index:");
+        try out.flush();
+        const index_slice = try in.takeDelimiter('\n');
+        const index = if (index_slice) |is| try std.fmt.parseInt(usize, is, 10) else return error.UnexpectedString;
+
+        try out.writeAll("\n");
+        try out.flush();
+
+        self.deleteEntry(allocator, index) catch |err| switch (err) {
+            error.OutOfBounbds => {
+                try out.writeAll("Index is out of bounds.\n");
+                try out.flush();
+                return;
+            },
+            else => return err,
+        };
+        try out.print("Entry {d} deleted successfully.\n", .{index});
+        try out.flush();
+    }
+
+    pub fn save(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        file_path: []const u8,
+    ) !void {
+        const vault_serialized = try format.serializeVault(allocator, self);
+        defer allocator.free(vault_serialized);
+
+        try storage.writeFile(file_path, vault_serialized);
     }
 };
 
@@ -240,6 +318,9 @@ test "init" {
 
     var vault = try Vault.init(allocator, "blue-penguin");
     defer vault.deinit(allocator);
+
+    try vault.addEntry(allocator, "test", "test data");
+    try vault.deleteEntry(allocator, 0);
 
     //var out_buff: [4096]u8 = undefined;
     //var stdout = std.fs.File.stdout().writer(&out_buff);
