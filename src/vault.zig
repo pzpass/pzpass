@@ -376,6 +376,72 @@ pub const Vault = struct {
 
         try storage.writeFile(file_path, vault_serialized);
     }
+
+    pub fn updatePassword(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        password: []const u8,
+    ) !void {
+        const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        try pzcrypt.mlockSlice(@constCast(&password_key));
+        defer pzcrypt.zeroAndMunlock(&password_key);
+
+        aead.encrypt(
+            &self.header.kek_ciphertext,
+            &self.header.kek_tag,
+            &self.vault_key,
+            "",
+            self.header.kek_nonce,
+            password_key,
+        );
+    }
+
+    pub fn updatePasswordInteractive(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        out: *std.io.Writer,
+        in: *std.io.Reader,
+    ) !void {
+        var password: []const u8 = undefined;
+        defer allocator.free(password);
+
+        while (true) {
+            try out.writeAll("\x1b[33mEnter new password:\x1b[0m ");
+            try out.flush();
+            const password_slice = try in.takeDelimiter('\n');
+            if (password_slice) |ns| {
+                password = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
+                if (password.len > 0) break else {
+                    try out.flush();
+                }
+            }
+        }
+        try out.flush();
+
+        var password_confirmation: []const u8 = undefined;
+        defer allocator.free(password_confirmation);
+
+        while (true) {
+            try out.writeAll("\x1b[33mConfirm new password:\x1b[0m ");
+            try out.flush();
+            const password_confirmation_slice = try in.takeDelimiter('\n');
+            if (password_confirmation_slice) |ds| {
+                password_confirmation = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
+                if (password_confirmation.len > 0) break else {
+                    try out.flush();
+                }
+            }
+        }
+        try out.flush();
+
+        if (std.mem.eql(u8, password, password_confirmation)) {
+            try self.updatePassword(allocator, password);
+        }
+        try out.writeAll("\x1b[33mPassword successfully updated.\x1b[0m\n");
+        try out.flush();
+        std.crypto.secureZero(u8, @constCast(password));
+        std.crypto.secureZero(u8, @constCast(password_confirmation));
+    }
 };
 
 test "init" {
@@ -386,6 +452,8 @@ test "init" {
 
     try vault.addEntry(allocator, "test", "test data");
     try vault.deleteEntry(allocator, 0);
+
+    try vault.updatePassword(allocator, "orange-tiger");
 
     //var out_buff: [4096]u8 = undefined;
     //var stdout = std.fs.File.stdout().writer(&out_buff);
