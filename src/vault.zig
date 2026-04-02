@@ -123,12 +123,14 @@ pub const Vault = struct {
     pub fn help(out: *std.io.Writer) !void {
         try out.writeAll(
             \\
-            \\Press 'a' to add an entry,
-            \\      'l' to list entries,
-            \\      'i' to show the vault info,
-            \\      'i' to save the vault,
-            \\      'q' to quit the app,
-            \\      'h' to see this help
+            \\Press 'a' add an entry
+            \\      'l' list entries
+            \\      'f' find entries
+            \\      'o' open an entry
+            \\      'i' show the vault info
+            \\      's' save the vault
+            \\      'q' quit the app
+            \\      'h' see this help
             \\
             \\
         );
@@ -141,6 +143,7 @@ pub const Vault = struct {
         out: *std.io.Writer,
         filter: ?[]const u8,
     ) !void {
+        try out.writeAll("\x1b[33m-----\x1b[0m\n");
         for (self.entries.items, 0..) |item, index| {
             const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
             try pzcrypt.mlockSlice(name);
@@ -165,9 +168,8 @@ pub const Vault = struct {
             }
         }
         if (self.entries.items.len == 0) {
-            try out.writeAll("Vault has no entries.");
+            try out.writeAll("\x1b[33mVault has no entries.\x1b[0m\n");
         }
-        try out.writeAll("\n");
         try out.flush();
     }
 
@@ -223,7 +225,52 @@ pub const Vault = struct {
         defer allocator.free(name);
 
         while (true) {
-            try out.writeAll("New entry name:");
+            try out.writeAll("\x1b[33mNew entry name:\x1b[0m ");
+            try out.flush();
+            const name_slice = try in.takeDelimiter('\n');
+            if (name_slice) |ns| {
+                name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
+                if (name.len > 0) break else {
+                    try out.flush();
+                }
+            }
+        }
+        try out.flush();
+
+        var data: []const u8 = undefined;
+        defer allocator.free(data);
+
+        while (true) {
+            try out.writeAll("\x1b[33mNew entry data:\x1b[0m ");
+            try out.flush();
+            const data_slice = try in.takeDelimiter('\n');
+            if (data_slice) |ds| {
+                data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
+                if (data.len > 0) break else {
+                    try out.flush();
+                }
+            }
+        }
+        try out.flush();
+
+        try self.addEntry(allocator, name, data);
+        try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
+        try out.flush();
+        std.crypto.secureZero(u8, @constCast(name));
+        std.crypto.secureZero(u8, @constCast(data));
+    }
+
+    pub fn findEntryInteractive(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        out: *std.io.Writer,
+        in: *std.io.Reader,
+    ) !void {
+        var name: []const u8 = undefined;
+        defer allocator.free(name);
+
+        while (true) {
+            try out.writeAll("Find: ");
             try out.flush();
             const name_slice = try in.takeDelimiter('\n');
             if (name_slice) |ns| {
@@ -237,29 +284,47 @@ pub const Vault = struct {
         try out.writeAll("\n");
         try out.flush();
 
-        var data: []const u8 = undefined;
-        defer allocator.free(data);
+        try self.listEntries(allocator, out, name);
+        std.crypto.secureZero(u8, @constCast(name));
+    }
 
-        while (true) {
-            try out.writeAll("New entry data:");
-            try out.flush();
-            const data_slice = try in.takeDelimiter('\n');
-            if (data_slice) |ds| {
-                data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
-                if (data.len > 0) break else {
-                    try out.writeAll("\n");
-                    try out.flush();
-                }
-            }
-        }
+    pub fn openEntryInteractive(
+        self: *Vault,
+        allocator: std.mem.Allocator,
+        out: *std.io.Writer,
+        in: *std.io.Reader,
+    ) !void {
+        try out.writeAll("\x1b[33mOpen item index:\x1b[0m ");
+        try out.flush();
+        const index_slice = try in.takeDelimiter('\n');
+        const index = if (index_slice) |is| try std.fmt.parseInt(usize, is, 10) else return error.UnexpectedString;
+
         try out.writeAll("\n");
         try out.flush();
 
-        try self.addEntry(allocator, name, data);
-        try out.writeAll("Entry added successfully.\n");
+        if (index < 0 or index >= self.entries.items.len) {
+            try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
+        }
+
+        const item = self.entries.items[index];
+
+        const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
+
+        const data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
+        try pzcrypt.mlockSlice(data);
+        defer {
+            pzcrypt.zeroAndMunlock(data);
+            allocator.free(data);
+        }
+
+        try pzcrypt.decrypt(&item, self.vault_key, name, data);
+        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ name, data });
         try out.flush();
-        std.crypto.secureZero(u8, @constCast(name));
-        std.crypto.secureZero(u8, @constCast(data));
     }
 
     pub fn deleteEntry(
@@ -281,7 +346,7 @@ pub const Vault = struct {
         out: *std.io.Writer,
         in: *std.io.Reader,
     ) !void {
-        try out.writeAll("Delete item index:");
+        try out.writeAll("\x1b[33mDelete item index:\x1b[0m ");
         try out.flush();
         const index_slice = try in.takeDelimiter('\n');
         const index = if (index_slice) |is| try std.fmt.parseInt(usize, is, 10) else return error.UnexpectedString;
@@ -291,13 +356,13 @@ pub const Vault = struct {
 
         self.deleteEntry(allocator, index) catch |err| switch (err) {
             error.OutOfBounbds => {
-                try out.writeAll("Index is out of bounds.\n");
+                try out.writeAll("\x1b[31mIndex is out of bounds.\x1b[0m\n");
                 try out.flush();
                 return;
             },
             else => return err,
         };
-        try out.print("Entry {d} deleted successfully.\n", .{index});
+        try out.print("\x1b[33mEntry {d} deleted successfully.\x1b[0m\n", .{index});
         try out.flush();
     }
 
