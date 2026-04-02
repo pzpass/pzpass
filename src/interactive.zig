@@ -60,12 +60,16 @@ pub fn run(
             27, 'q' => break,
             'a' => {
                 termios.reset_terminal(&original_termios);
+
                 try vault.addEntryInteractive(allocator, out, in);
+
                 try termios.set_terminal(&original_termios);
             },
             'd' => {
                 termios.reset_terminal(&original_termios);
+
                 try vault.deleteEntryInteractive(allocator, out, in);
+
                 try termios.set_terminal(&original_termios);
             },
             'l' => {
@@ -73,12 +77,25 @@ pub fn run(
             },
             'f' => {
                 termios.reset_terminal(&original_termios);
+
                 try vault.findEntryInteractive(allocator, out, in);
+
                 try termios.set_terminal(&original_termios);
             },
             'o' => {
                 termios.reset_terminal(&original_termios);
+
                 try vault.openEntryInteractive(allocator, out, in);
+
+                try termios.set_terminal(&original_termios);
+            },
+            'u' => {
+                termios.reset_terminal(&original_termios);
+                try termios.set_terminal_pasword(&original_termios);
+
+                try vault.updatePasswordInteractive(allocator, out, in);
+
+                termios.reset_terminal(&original_termios);
                 try termios.set_terminal(&original_termios);
             },
             'i' => {
