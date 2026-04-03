@@ -114,7 +114,15 @@ pub fn run(
         try out.flush();
     }
 
-    try vault.save(allocator, file_path);
+    try out.writeAll("\x1b[33mSave vault? [Y/n]]\x1b[0m\n");
+    try out.flush();
+
+    try in.fillMore();
+    const confirm = try in.takeByte();
+    switch (confirm) {
+        'n', 'N' => {},
+        else => try vault.save(allocator, file_path),
+    }
 
     try out.flush();
 }
