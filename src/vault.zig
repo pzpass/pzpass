@@ -226,9 +226,16 @@ pub const Vault = struct {
         defer allocator.free(name);
 
         while (true) {
-            try out.writeAll("\x1b[33mNew entry name or type \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
+            try out.writeAll("\x1b[33mNew entry name or \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
             try out.flush();
-            const name_slice = try in.takeDelimiter('\n');
+            const name_slice = in.takeDelimiter('\n') catch |err| switch (err) {
+                error.StreamTooLong => {
+                    try printInputTooLong(out, in.bufferedLen());
+                    _ = try in.discardDelimiterInclusive('\n');
+                    return;
+                },
+                else => return err,
+            };
             if (name_slice) |ns| {
                 if (std.mem.eql(u8, ns, "quit")) return;
                 name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
@@ -243,9 +250,16 @@ pub const Vault = struct {
         defer allocator.free(data);
 
         while (true) {
-            try out.writeAll("\x1b[33mNew entry data or type \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
+            try out.writeAll("\x1b[33mNew entry data or \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
             try out.flush();
-            const data_slice = try in.takeDelimiter('\n');
+            const data_slice = in.takeDelimiter('\n') catch |err| switch (err) {
+                error.StreamTooLong => {
+                    try printInputTooLong(out, in.bufferedLen());
+                    _ = try in.discardDelimiterInclusive('\n');
+                    return;
+                },
+                else => return err,
+            };
             if (data_slice) |ds| {
                 if (std.mem.eql(u8, ds, "quit")) return;
                 data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
@@ -299,8 +313,9 @@ pub const Vault = struct {
     ) !void {
         try out.writeAll("\x1b[33mOpen item index:\x1b[0m ");
         try out.flush();
-        const index_slice = try in.takeDelimiter('\n');
-        const index = if (index_slice) |is| try std.fmt.parseInt(usize, is, 10) else return error.UnexpectedString;
+        const index_slice_option = try in.takeDelimiter('\n');
+        const index_slice = index_slice_option orelse return printWrongInput(out);
+        const index = std.fmt.parseInt(usize, index_slice, 10) catch return printWrongInput(out);
 
         try out.writeAll("\n");
         try out.flush();
@@ -451,7 +466,13 @@ pub const Vault = struct {
 };
 
 fn printWrongInput(out: *std.io.Writer) !void {
-    try out.writeAll("Wrong input. Use entry index.\n");
+    try out.writeAll("\x1b[31mWrong input. Use entry index.\x1b[0m\n");
+    try out.flush();
+    return;
+}
+
+fn printInputTooLong(out: *std.io.Writer, length: usize) !void {
+    try out.print("\x1b[31mInput is too long. Max length is {d}.\x1b[0m\n", .{length});
     try out.flush();
     return;
 }
