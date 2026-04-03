@@ -51,8 +51,3 @@ fn printUsage() !void {
         \\
     , .{});
 }
-
-test "init vault" {
-    const vault = try Vault.init(std.testing.allocator);
-    defer vault.deinit(std.testing.allocator);
-}

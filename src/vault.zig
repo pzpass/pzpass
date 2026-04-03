@@ -226,10 +226,11 @@ pub const Vault = struct {
         defer allocator.free(name);
 
         while (true) {
-            try out.writeAll("\x1b[33mNew entry name:\x1b[0m ");
+            try out.writeAll("\x1b[33mNew entry name or type \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
             try out.flush();
             const name_slice = try in.takeDelimiter('\n');
             if (name_slice) |ns| {
+                if (std.mem.eql(u8, ns, "quit")) return;
                 name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
                 if (name.len > 0) break else {
                     try out.flush();
@@ -242,10 +243,11 @@ pub const Vault = struct {
         defer allocator.free(data);
 
         while (true) {
-            try out.writeAll("\x1b[33mNew entry data:\x1b[0m ");
+            try out.writeAll("\x1b[33mNew entry data or type \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
             try out.flush();
             const data_slice = try in.takeDelimiter('\n');
             if (data_slice) |ds| {
+                if (std.mem.eql(u8, ds, "quit")) return;
                 data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
                 if (data.len > 0) break else {
                     try out.flush();
@@ -349,8 +351,11 @@ pub const Vault = struct {
     ) !void {
         try out.writeAll("\x1b[33mDelete item index:\x1b[0m ");
         try out.flush();
-        const index_slice = try in.takeDelimiter('\n');
-        const index = if (index_slice) |is| try std.fmt.parseInt(usize, is, 10) else return error.UnexpectedString;
+
+        const index_slice_option = try in.takeDelimiter('\n');
+        const index_slice = index_slice_option orelse return printWrongInput(out);
+
+        const index = std.fmt.parseInt(usize, index_slice, 10) catch return printWrongInput(out);
 
         try out.writeAll("\n");
         try out.flush();
@@ -444,6 +449,12 @@ pub const Vault = struct {
         std.crypto.secureZero(u8, @constCast(password_confirmation));
     }
 };
+
+fn printWrongInput(out: *std.io.Writer) !void {
+    try out.writeAll("Wrong input. Use entry index.\n");
+    try out.flush();
+    return;
+}
 
 test "init" {
     const allocator = std.testing.allocator;
