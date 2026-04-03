@@ -5,6 +5,7 @@ const Vault = @import("vault.zig").Vault;
 const storage = @import("storage.zig");
 const format = @import("format.zig");
 const interactive = @import("interactive.zig");
+const pzcrypt = @import("crypto.zig");
 
 const passwordgen = @import("passwordgen.zig");
 
@@ -13,13 +14,21 @@ pub fn run() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var out_buff: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&out_buff);
+    const stdout_buff: []u8 = try allocator.alloc(u8, 4096);
+    defer allocator.free(stdout_buff);
+    try pzcrypt.mlockSlice(@constCast(stdout_buff));
+    defer pzcrypt.zeroAndMunlock(stdout_buff);
+
+    var stdout = std.fs.File.stdout().writer(stdout_buff);
     const out = &stdout.interface;
 
-    var stdin_buff: [256]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buff);
+    const stdin_buff: []u8 = try allocator.alloc(u8, 4096);
+    defer allocator.free(stdin_buff);
+
+    var stdin_reader = std.fs.File.stdin().reader(stdin_buff);
     const stdin = &stdin_reader.interface;
+    try pzcrypt.mlockSlice(@constCast(stdin_buff));
+    defer pzcrypt.zeroAndMunlock(stdin_buff);
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
