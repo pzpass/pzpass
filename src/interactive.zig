@@ -1,18 +1,18 @@
 const std = @import("std");
 
 const Vault = @import("vault.zig").Vault;
-const NameIndex = @import("namemap.zig").NameIndex;
-const v1 = @import("config.zig").v1;
 
-const format = @import("format.zig");
 const storage = @import("storage.zig");
 const termios = @import("termios.zig");
 const pzcrypt = @import("crypto.zig");
 
+const Reader = std.io.Reader;
+const Writer = std.io.Writer;
+
 pub fn run(
     allocator: std.mem.Allocator,
-    out: *std.io.Writer,
-    in: *std.io.Reader,
+    out: *Writer,
+    in: *Reader,
 ) !void {
     var original_termios: std.os.linux.termios = undefined;
     defer termios.reset_terminal(&original_termios);
@@ -24,7 +24,8 @@ pub fn run(
     try out.flush();
 
     try termios.set_terminal_pasword(&original_termios);
-    const user_password = try in.takeDelimiter('\n');
+    const user_password = try Vault.takeDelimiter(out, in, '\n');
+    try Vault.flushInput(out, in);
     termios.reset_terminal(&original_termios);
     try termios.set_terminal(&original_termios);
 
@@ -41,18 +42,13 @@ pub fn run(
         try out.writeAll("Null password is not valid.");
     }
 
-    var name_index = NameIndex.init(allocator);
-    defer name_index.deinit();
-
-    try name_index.buildEntryNameMap(vault);
-    try vault.listEntries(allocator, out, null);
-
     const file_path = try storage.VaultPath.default(allocator, null);
     defer allocator.free(file_path);
 
-    var show_help_enabled = true;
-
     while (true) {
+        try Vault.flushInput(out, in);
+        try Vault.short_help(out);
+
         try in.fillMore();
         const key = try in.takeByte();
         switch (key) {
@@ -107,9 +103,8 @@ pub fn run(
             },
             'h' => {
                 try Vault.help(out);
-                show_help_enabled = false;
             },
-            else => show_help_enabled = try show_help(show_help_enabled, out),
+            else => {},
         }
         try out.flush();
     }
@@ -125,13 +120,6 @@ pub fn run(
     }
 
     try out.flush();
-}
-
-fn show_help(enabled: bool, out: *std.io.Writer) !bool {
-    if (enabled) {
-        try Vault.help(out);
-    }
-    return false;
 }
 
 test "try run" {
