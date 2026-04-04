@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
@@ -30,7 +30,7 @@ jobs:
         run: zig build test --summary all
 
   security-audit:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -50,22 +50,44 @@ jobs:
 
           audit() {
             local pattern="$1" level="$2" label="$3"
-            local count
-            count=$(grep -rn --include='*.zig' -e "$pattern" src/ 2>/dev/null | wc -l)
-            if [ "$count" -gt 0 ]; then
-              echo "| \`$label\` | $count | $level |" >> "$GITHUB_STEP_SUMMARY"
-              total=$((total + count))
+            local count=0
+            
+            if [[ -z "$pattern" || -z "$level" || -z "$label" ]]; then
+                echo "::error::audit(): missing required arguments (pattern, level, label)" >&2
+                return 1
             fi
-            if [ "$GH_EVENT" = "pull_request" ] && [ -n "$GH_BASE_REF" ]; then
-              git diff --name-only "origin/$GH_BASE_REF" -- '*.zig' 2>/dev/null | while read -r file; do
-                [ -f "$file" ] || continue
-                grep -n "$pattern" "$file" 2>/dev/null | while IFS=: read -r line content; do
-                  echo "::warning file=$file,line=$line::[$level] $label: $content"
-                done
-              done
+            
+            if [[ -d "src/" ]]; then
+                count=$(grep -rn --include='*.zig' -e "$pattern" src/ 2>/dev/null | wc -l)
+                count="${count##* }"  # Trim whitespace from wc output
+            fi
+            
+            if [[ "$count" -gt 0 ]]; then
+                {
+                    echo "| \`$label\` | $count | $level |"
+                } >> "$GITHUB_STEP_SUMMARY"
+                total=$((total + count))
+            fi
+            
+            if [[ "${GH_EVENT:-}" = "pull_request" && -n "${GH_BASE_REF:-}" ]]; then
+                local temp_file
+                temp_file=$(mktemp)
+                
+                git diff --name-only "origin/$GH_BASE_REF" -- '*.zig' 2>/dev/null > "$temp_file"
+                
+                while IFS= read -r file; do
+                    [[ -f "$file" ]] || continue
+                    grep -n "$pattern" "$file" 2>/dev/null | while IFS=: read -r line content; do
+                        # Escape special characters for safe annotation
+                        content="${content//%/%%}"  # Escape % for GitHub's formatting
+                        echo "::warning file=$file,line=$line::[$level] $label: ${content# }"
+                    done
+                done < "$temp_file"
+                
+                rm -f "$temp_file"
             fi
           }
-
+          
           audit '@setRuntimeSafety\(false\)' 'Critical' '@setRuntimeSafety(false)'
           audit '@ptrCast' 'Tracked' '@ptrCast'
           audit '@ptrFromInt' 'Tracked' '@ptrFromInt'
