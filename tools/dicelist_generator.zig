@@ -62,14 +62,14 @@ pub fn main() !void {
         }
     }
     try writer_interface.writeAll("\";\n");
-    try writer_interface.writeAll("const offsets = [_]usize{0");
+    try writer_interface.writeAll("const offsets = [_]usize{ 0");
     var offset_accum: usize = 0;
 
     for (word_length.items) |item| {
         offset_accum += item;
         try writer_interface.print(", {d}", .{offset_accum});
     }
-    try writer_interface.writeAll("};");
+    try writer_interface.writeAll(" };");
     try writer_interface.writeAll(
         \\
         \\pub const DiceWords = struct {
