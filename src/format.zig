@@ -1,6 +1,6 @@
 const std = @import("std");
-const config = @import("config.zig");
-const v1 = config.v1;
+const Config = @import("config.zig").Config;
+const MAGIC = @import("config.zig").MAGIC;
 const Vault = @import("vault.zig").Vault;
 const pzcrypt = @import("crypto.zig");
 
@@ -39,31 +39,31 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
 pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []const u8) !void {
     var r = std.io.Reader.fixed(bytes);
 
-    var magic: [config.MAGIC.len]u8 = undefined;
+    var magic: [MAGIC.len]u8 = undefined;
     try r.readSliceAll(&magic);
-    if (!std.mem.eql(u8, &magic, &config.MAGIC)) {
+    if (!std.mem.eql(u8, &magic, &MAGIC)) {
         std.debug.panic("Not pzpazz vault file.\n", .{});
     }
 
     const version = try r.takeInt(usize, .little);
-    if (version != config.VERSION) {
+    if (version != Config.VERSION) {
         std.debug.panic("Wrong version of pzpazz vault file.\n", .{});
     }
 
-    var salt: [v1.SALT_LEN]u8 = undefined;
+    var salt: [Config.SALT_LEN]u8 = undefined;
     try r.readSliceAll(&salt);
 
     const iterations = try r.takeInt(usize, .little);
     const mem_cost = try r.takeInt(u32, .little);
     const parallelism = try r.takeInt(usize, .little);
 
-    var nonce: [v1.NONCE_LEN]u8 = undefined;
+    var nonce: [Config.NONCE_LEN]u8 = undefined;
     try r.readSliceAll(&nonce);
 
-    var kek_ciphertext: [v1.KEY_LEN]u8 = undefined;
+    var kek_ciphertext: [Config.KEY_LEN]u8 = undefined;
     try r.readSliceAll(&kek_ciphertext);
 
-    var tag: [v1.TAG_LEN]u8 = undefined;
+    var tag: [Config.TAG_LEN]u8 = undefined;
     try r.readSliceAll(&tag);
 
     const entry_count = try r.takeInt(usize, .little);
@@ -89,11 +89,11 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         const name_len = try r.takeInt(usize, .little);
         const data_len = try r.takeInt(usize, .little);
 
-        const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
+        const nonce_name = try allocator.alloc(u8, Config.NONCE_LEN);
         defer allocator.free(nonce_name);
         try r.readSliceAll(nonce_name);
 
-        const nonce_data = try allocator.alloc(u8, v1.NONCE_LEN);
+        const nonce_data = try allocator.alloc(u8, Config.NONCE_LEN);
         defer allocator.free(nonce_data);
         try r.readSliceAll(nonce_data);
 
@@ -105,19 +105,19 @@ pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []co
         defer allocator.free(ciphertext_data);
         try r.readSliceAll(ciphertext_data);
 
-        const tag_name = try allocator.alloc(u8, v1.TAG_LEN);
+        const tag_name = try allocator.alloc(u8, Config.TAG_LEN);
         defer allocator.free(tag_name);
         try r.readSliceAll(tag_name);
 
-        const tag_data = try allocator.alloc(u8, v1.TAG_LEN);
+        const tag_data = try allocator.alloc(u8, Config.TAG_LEN);
         defer allocator.free(tag_data);
         try r.readSliceAll(tag_data);
 
         const entry: Vault.Entry = .{
-            .tag_name = tag_name[0..v1.TAG_LEN].*,
-            .tag_data = tag_data[0..v1.TAG_LEN].*,
-            .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
-            .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
+            .tag_name = tag_name[0..Config.TAG_LEN].*,
+            .tag_data = tag_data[0..Config.TAG_LEN].*,
+            .nonce_name = nonce_name[0..Config.NONCE_LEN].*,
+            .nonce_data = nonce_data[0..Config.NONCE_LEN].*,
             .ciphertext_name = try allocator.dupe(u8, ciphertext_name),
             .ciphertext_data = try allocator.dupe(u8, ciphertext_data),
         };
@@ -156,7 +156,7 @@ test "serialize deserialize" {
 
     try deserializeVault(allocator, vault_deserialized, vault_serialized);
 
-    try expectEqualSlices(u8, &vault_deserialized.header.magic, &config.MAGIC);
+    try expectEqualSlices(u8, &vault_deserialized.header.magic, &MAGIC);
     try expectEqualSlices(u8, &vault_deserialized.header.salt, &vault.header.salt);
     try expectEqualSlices(u8, &vault_deserialized.header.kek_ciphertext, &vault.header.kek_ciphertext);
     try expectEqualSlices(u8, &vault_deserialized.header.kek_nonce, &vault.header.kek_nonce);
@@ -189,7 +189,7 @@ test "serialize deserialize" {
 
     try deserializeVault(allocator, vault_from_file, data_from_file);
 
-    try expectEqualSlices(u8, &vault_from_file.header.magic, &config.MAGIC);
+    try expectEqualSlices(u8, &vault_from_file.header.magic, &MAGIC);
     try expectEqualSlices(u8, &vault_from_file.header.salt, &vault.header.salt);
     try expectEqualSlices(u8, &vault_from_file.header.kek_ciphertext, &vault.header.kek_ciphertext);
     try expectEqualSlices(u8, &vault_from_file.header.kek_nonce, &vault.header.kek_nonce);

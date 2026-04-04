@@ -1,6 +1,6 @@
 const std = @import("std");
-const config = @import("config.zig");
-const v1 = config.v1;
+const MAGIC = @import("config.zig").MAGIC;
+const Config = @import("config.zig").Config;
 const storage = @import("storage.zig");
 const format = @import("format.zig");
 const pzcrypt = @import("crypto.zig");
@@ -10,30 +10,30 @@ const Reader = std.io.Reader;
 const Writer = std.io.Writer;
 
 pub const Vault = struct {
-    pub const ENTRY_LEN = v1.ENTRY_LEN;
+    pub const ENTRY_LEN = Config.ENTRY_LEN;
 
     pub const Header = struct {
-        magic: [config.MAGIC.len]u8,
+        magic: [MAGIC.len]u8,
         version: usize,
         iterations: usize,
         mem_cost: u32,
         parallelism: usize,
-        salt: [v1.SALT_LEN]u8,
-        kek_ciphertext: [v1.KEY_LEN]u8,
-        kek_nonce: [v1.NONCE_LEN]u8,
-        kek_tag: [v1.TAG_LEN]u8,
+        salt: [Config.SALT_LEN]u8,
+        kek_ciphertext: [Config.KEY_LEN]u8,
+        kek_nonce: [Config.NONCE_LEN]u8,
+        kek_tag: [Config.TAG_LEN]u8,
     };
 
     pub const Entry = struct {
-        nonce_name: [v1.NONCE_LEN]u8,
-        nonce_data: [v1.NONCE_LEN]u8,
-        tag_name: [v1.TAG_LEN]u8,
-        tag_data: [v1.TAG_LEN]u8,
+        nonce_name: [Config.NONCE_LEN]u8,
+        nonce_data: [Config.NONCE_LEN]u8,
+        tag_name: [Config.TAG_LEN]u8,
+        tag_data: [Config.TAG_LEN]u8,
         ciphertext_name: []u8,
         ciphertext_data: []u8,
     };
 
-    vault_key: [v1.KEY_LEN]u8,
+    vault_key: [Config.KEY_LEN]u8,
     entries: std.ArrayList(Entry),
     header: Header,
 
@@ -73,12 +73,12 @@ pub const Vault = struct {
         try pzcrypt.mlockSlice(&self.vault_key);
 
         self.header = .{
-            .magic = config.MAGIC,
-            .version = config.VERSION,
+            .magic = MAGIC,
+            .version = Config.VERSION,
             .salt = undefined,
-            .iterations = v1.ITERATIONS,
-            .mem_cost = v1.MEM_COST,
-            .parallelism = v1.PARALLELISM,
+            .iterations = Config.ITERATIONS,
+            .mem_cost = Config.MEM_COST,
+            .parallelism = Config.PARALLELISM,
             .kek_nonce = undefined,
             .kek_ciphertext = undefined,
             .kek_tag = undefined,
@@ -191,16 +191,16 @@ pub const Vault = struct {
         name: []const u8,
         data: []const u8,
     ) !void {
-        const nonce_name = try allocator.alloc(u8, v1.NONCE_LEN);
+        const nonce_name = try allocator.alloc(u8, Config.NONCE_LEN);
         defer allocator.free(nonce_name);
 
-        const nonce_data = try allocator.alloc(u8, v1.NONCE_LEN);
+        const nonce_data = try allocator.alloc(u8, Config.NONCE_LEN);
         defer allocator.free(nonce_data);
 
-        const tag_name = try allocator.alloc(u8, v1.TAG_LEN);
+        const tag_name = try allocator.alloc(u8, Config.TAG_LEN);
         defer allocator.free(tag_name);
 
-        const tag_data = try allocator.alloc(u8, v1.TAG_LEN);
+        const tag_data = try allocator.alloc(u8, Config.TAG_LEN);
         defer allocator.free(tag_data);
 
         std.crypto.random.bytes(nonce_name);
@@ -214,12 +214,12 @@ pub const Vault = struct {
         const ciphertext_data = try allocator.alloc(u8, data.len);
 
         var entry: Vault.Entry = .{
-            .nonce_name = nonce_name[0..v1.NONCE_LEN].*,
-            .nonce_data = nonce_data[0..v1.NONCE_LEN].*,
+            .nonce_name = nonce_name[0..Config.NONCE_LEN].*,
+            .nonce_data = nonce_data[0..Config.NONCE_LEN].*,
             .ciphertext_name = ciphertext_name,
             .ciphertext_data = ciphertext_data,
-            .tag_name = tag_name[0..v1.TAG_LEN].*,
-            .tag_data = tag_data[0..v1.TAG_LEN].*,
+            .tag_name = tag_name[0..Config.TAG_LEN].*,
+            .tag_data = tag_data[0..Config.TAG_LEN].*,
         };
 
         pzcrypt.encrypt(&entry, self.vault_key, name, data);
