@@ -10,4 +10,6 @@ pub const v1 = packed struct {
     pub const MEM_COST = 1 << 16;
     pub const ITERATIONS = 3;
     pub const PARALLELISM = 1;
+
+    pub const ENTRY_LEN = 256;
 };

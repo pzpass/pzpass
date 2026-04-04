@@ -4,9 +4,14 @@ const v1 = config.v1;
 const storage = @import("storage.zig");
 const format = @import("format.zig");
 const pzcrypt = @import("crypto.zig");
+
 const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
+const Reader = std.io.Reader;
+const Writer = std.io.Writer;
 
 pub const Vault = struct {
+    pub const ENTRY_LEN = v1.ENTRY_LEN;
+
     pub const Header = struct {
         magic: [config.MAGIC.len]u8,
         version: usize,
@@ -120,7 +125,7 @@ pub const Vault = struct {
         allocator.destroy(self);
     }
 
-    pub fn help(out: *std.io.Writer) !void {
+    pub fn help(out: *Writer) !void {
         try out.writeAll(
             \\
             \\Press 'a' add an entry
@@ -138,10 +143,16 @@ pub const Vault = struct {
         try out.flush();
     }
 
+    pub fn short_help(out: *Writer) !void {
+        try out.writeAll("\x1b[33m-----\x1b[0m\n");
+        try out.writeAll("a - add, d - delete, f - find, l -list, o - open, h - more commands\n");
+        try out.flush();
+    }
+
     pub fn listEntries(
         self: *Vault,
         allocator: std.mem.Allocator,
-        out: *std.io.Writer,
+        out: *Writer,
         filter: ?[]const u8,
     ) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
@@ -219,23 +230,16 @@ pub const Vault = struct {
     pub fn addEntryInteractive(
         self: *Vault,
         allocator: std.mem.Allocator,
-        out: *std.io.Writer,
-        in: *std.io.Reader,
+        out: *Writer,
+        in: *Reader,
     ) !void {
-        var name: []const u8 = undefined;
+        var name: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
         defer allocator.free(name);
 
         while (true) {
             try out.writeAll("\x1b[33mNew entry name or \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
             try out.flush();
-            const name_slice = in.takeDelimiter('\n') catch |err| switch (err) {
-                error.StreamTooLong => {
-                    try printInputTooLong(out, in.bufferedLen());
-                    _ = try in.discardDelimiterInclusive('\n');
-                    return;
-                },
-                else => return err,
-            };
+            const name_slice = takeDelimiter(out, in, '\n') catch return;
             if (name_slice) |ns| {
                 if (std.mem.eql(u8, ns, "quit")) return;
                 name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
@@ -244,22 +248,16 @@ pub const Vault = struct {
                 }
             }
         }
+        try flushInput(out, in);
         try out.flush();
 
-        var data: []const u8 = undefined;
+        var data: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
         defer allocator.free(data);
 
         while (true) {
             try out.writeAll("\x1b[33mNew entry data or \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
             try out.flush();
-            const data_slice = in.takeDelimiter('\n') catch |err| switch (err) {
-                error.StreamTooLong => {
-                    try printInputTooLong(out, in.bufferedLen());
-                    _ = try in.discardDelimiterInclusive('\n');
-                    return;
-                },
-                else => return err,
-            };
+            const data_slice = takeDelimiter(out, in, '\n') catch return;
             if (data_slice) |ds| {
                 if (std.mem.eql(u8, ds, "quit")) return;
                 data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
@@ -268,6 +266,7 @@ pub const Vault = struct {
                 }
             }
         }
+        try flushInput(out, in);
         try out.flush();
 
         try self.addEntry(allocator, name, data);
@@ -280,8 +279,8 @@ pub const Vault = struct {
     pub fn findEntryInteractive(
         self: *Vault,
         allocator: std.mem.Allocator,
-        out: *std.io.Writer,
-        in: *std.io.Reader,
+        out: *Writer,
+        in: *Reader,
     ) !void {
         var name: []const u8 = undefined;
         defer allocator.free(name);
@@ -308,8 +307,8 @@ pub const Vault = struct {
     pub fn openEntryInteractive(
         self: *Vault,
         allocator: std.mem.Allocator,
-        out: *std.io.Writer,
-        in: *std.io.Reader,
+        out: *Writer,
+        in: *Reader,
     ) !void {
         try out.writeAll("\x1b[33mOpen item index:\x1b[0m ");
         try out.flush();
@@ -322,6 +321,8 @@ pub const Vault = struct {
 
         if (index < 0 or index >= self.entries.items.len) {
             try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
+            try out.flush();
+            return;
         }
 
         const item = self.entries.items[index];
@@ -361,8 +362,8 @@ pub const Vault = struct {
     pub fn deleteEntryInteractive(
         self: *Vault,
         allocator: std.mem.Allocator,
-        out: *std.io.Writer,
-        in: *std.io.Reader,
+        out: *Writer,
+        in: *Reader,
     ) !void {
         try out.writeAll("\x1b[33mDelete item index:\x1b[0m ");
         try out.flush();
@@ -420,8 +421,8 @@ pub const Vault = struct {
     pub fn updatePasswordInteractive(
         self: *Vault,
         allocator: std.mem.Allocator,
-        out: *std.io.Writer,
-        in: *std.io.Reader,
+        out: *Writer,
+        in: *Reader,
     ) !void {
         var password: []const u8 = undefined;
         defer allocator.free(password);
@@ -463,15 +464,42 @@ pub const Vault = struct {
         std.crypto.secureZero(u8, @constCast(password));
         std.crypto.secureZero(u8, @constCast(password_confirmation));
     }
+
+    pub fn takeDelimiter(
+        out: *Writer,
+        in: *Reader,
+        delimeter: u8,
+    ) !?[]u8 {
+        const slice = in.takeDelimiter(delimeter) catch |err| switch (err) {
+            error.StreamTooLong => {
+                try printInputTooLong(out, in.bufferedLen());
+                _ = try in.discardDelimiterInclusive('\n');
+                return err;
+            },
+            else => return err,
+        };
+        return slice;
+    }
+
+    pub fn flushInput(
+        out: *Writer,
+        in: *Reader,
+    ) !void {
+        while (true) {
+            if (in.bufferedLen() == 0) break else {
+                _ = try Vault.takeDelimiter(out, in, '\n');
+            }
+        }
+    }
 };
 
-fn printWrongInput(out: *std.io.Writer) !void {
+fn printWrongInput(out: *Writer) !void {
     try out.writeAll("\x1b[31mWrong input. Use entry index.\x1b[0m\n");
     try out.flush();
     return;
 }
 
-fn printInputTooLong(out: *std.io.Writer, length: usize) !void {
+fn printInputTooLong(out: *Writer, length: usize) !void {
     try out.print("\x1b[31mInput is too long. Max length is {d}.\x1b[0m\n", .{length});
     try out.flush();
     return;

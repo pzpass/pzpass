@@ -14,7 +14,7 @@ pub fn run() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const stdout_buff: []u8 = try allocator.alloc(u8, 4096);
+    const stdout_buff: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
     defer allocator.free(stdout_buff);
     try pzcrypt.mlockSlice(@constCast(stdout_buff));
     defer pzcrypt.zeroAndMunlock(stdout_buff);
@@ -22,7 +22,7 @@ pub fn run() !void {
     var stdout = std.fs.File.stdout().writer(stdout_buff);
     const out = &stdout.interface;
 
-    const stdin_buff: []u8 = try allocator.alloc(u8, 4096);
+    const stdin_buff: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
     defer allocator.free(stdin_buff);
 
     var stdin_reader = std.fs.File.stdin().reader(stdin_buff);
