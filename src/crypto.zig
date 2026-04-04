@@ -1,6 +1,6 @@
 const std = @import("std");
 const Vault = @import("vault.zig").Vault;
-const v1 = @import("config.zig").v1;
+const Config = @import("config.zig").Config;
 const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
 pub fn randomBytes(buf: []u8) void {
@@ -11,8 +11,8 @@ pub fn deriveKey(
     allocator: std.mem.Allocator,
     password: []const u8,
     salt: []const u8,
-) ![v1.KEY_LEN]u8 {
-    var key: [v1.KEY_LEN]u8 = undefined;
+) ![Config.KEY_LEN]u8 {
+    var key: [Config.KEY_LEN]u8 = undefined;
     try mlockSlice(&key);
 
     try std.crypto.pwhash.argon2.kdf(
@@ -33,7 +33,7 @@ pub fn deriveKey(
 
 pub fn encrypt(
     entry: *Vault.Entry,
-    key: [v1.KEY_LEN]u8,
+    key: [Config.KEY_LEN]u8,
     name: []const u8,
     data: []const u8,
 ) void {
@@ -58,7 +58,7 @@ pub fn encrypt(
 
 pub fn decrypt(
     entry: *const Vault.Entry,
-    key: [v1.KEY_LEN]u8,
+    key: [Config.KEY_LEN]u8,
     name: []u8,
     data: []u8,
 ) !void {
@@ -102,18 +102,18 @@ test "derive key" {
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
-    const derived_key: [v1.KEY_LEN]u8 = try deriveKey(allocator, "blue-penguin", "orange-tiger");
+    const derived_key: [Config.KEY_LEN]u8 = try deriveKey(allocator, "blue-penguin", "orange-tiger");
     defer zeroAndMunlock(&derived_key);
 
-    try expect(derived_key.len == v1.KEY_LEN);
+    try expect(derived_key.len == Config.KEY_LEN);
 
     const expected_hex = "a244cb38a5b637d6bb111abb9cccebfffb015572f1314ca445ad51f08c82bc0c";
 
-    var expected_bytes: [v1.KEY_LEN]u8 = undefined;
+    var expected_bytes: [Config.KEY_LEN]u8 = undefined;
 
     const result = try std.fmt.hexToBytes(&expected_bytes, expected_hex);
     try expectEqualSlices(u8, &expected_bytes, &derived_key);
-    try expect(result.len == v1.KEY_LEN);
+    try expect(result.len == Config.KEY_LEN);
 
     const entry = try allocator.create(Vault.Entry);
     defer allocator.destroy(entry);
