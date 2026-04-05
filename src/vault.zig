@@ -36,6 +36,7 @@ pub const Vault = struct {
     vault_key: [Config.KEY_LEN]u8,
     entries: std.ArrayList(Entry),
     header: Header,
+    file_path: []u8,
 
     pub fn init(allocator: std.mem.Allocator, password: []const u8) !*Vault {
         var self = try allocator.create(Vault);
@@ -109,7 +110,9 @@ pub const Vault = struct {
             try storage.VaultPath.default(allocator, null);
         defer allocator.free(file_path);
 
-        const data_from_file = try storage.readFileAlloc(allocator, file_path);
+        self.file_path = file_path;
+
+        const data_from_file = try storage.readFileAlloc(allocator, self.file_path);
         defer allocator.free(data_from_file);
 
         try format.deserializeVault(allocator, self, data_from_file);
@@ -140,6 +143,13 @@ pub const Vault = struct {
             \\
             \\
         );
+        try out.flush();
+    }
+
+    pub fn info(self: *Vault, out: *Writer) !void {
+        try out.writeAll("\x1b[33m-----\x1b[0m\n");
+        try out.print("Entries count: {d}\n", .{self.entries.items.len});
+        try out.print("Vault stored as:\n{s}\n", .{self.file_path});
         try out.flush();
     }
 
@@ -391,12 +401,11 @@ pub const Vault = struct {
     pub fn save(
         self: *Vault,
         allocator: std.mem.Allocator,
-        file_path: []const u8,
     ) !void {
         const vault_serialized = try format.serializeVault(allocator, self);
         defer allocator.free(vault_serialized);
 
-        try storage.writeFile(file_path, vault_serialized);
+        try storage.writeFile(self.file_path, vault_serialized);
     }
 
     pub fn updatePassword(
