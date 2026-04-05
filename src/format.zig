@@ -1,10 +1,13 @@
 const std = @import("std");
-const Config = @import("config.zig").Config;
+
+const Allocator = std.mem.Allocator;
+
 const MAGIC = @import("config.zig").MAGIC;
+const Config = @import("config.zig").Config;
 const Vault = @import("vault.zig").Vault;
 const pzcrypt = @import("crypto.zig");
 
-pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
+pub fn serializeVault(allocator: Allocator, vault: *Vault) ![]u8 {
     var data = try std.ArrayList(u8).initCapacity(allocator, 1024);
     defer data.deinit(allocator);
 
@@ -36,7 +39,7 @@ pub fn serializeVault(allocator: std.mem.Allocator, vault: *Vault) ![]u8 {
     return data.toOwnedSlice(allocator);
 }
 
-pub fn deserializeVault(allocator: std.mem.Allocator, vault: *Vault, bytes: []const u8) !void {
+pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) !void {
     var r = std.io.Reader.fixed(bytes);
 
     var magic: [MAGIC.len]u8 = undefined;

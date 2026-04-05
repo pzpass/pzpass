@@ -8,6 +8,7 @@ const pzcrypt = @import("crypto.zig");
 const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const Reader = std.io.Reader;
 const Writer = std.io.Writer;
+const Allocator = std.mem.Allocator;
 
 pub const Vault = struct {
     pub const ENTRY_LEN = Config.ENTRY_LEN;
@@ -38,7 +39,7 @@ pub const Vault = struct {
     header: Header,
     file_path: []u8,
 
-    pub fn init(allocator: std.mem.Allocator, password: []const u8) !*Vault {
+    pub fn init(allocator: Allocator, password: []const u8) !*Vault {
         var self = try allocator.create(Vault);
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
 
@@ -69,7 +70,7 @@ pub const Vault = struct {
         return self;
     }
 
-    fn new(self: *Vault, allocator: std.mem.Allocator, password: []const u8) !void {
+    fn new(self: *Vault, allocator: Allocator, password: []const u8) !void {
         std.crypto.random.bytes(&self.vault_key);
         try pzcrypt.mlockSlice(&self.vault_key);
 
@@ -102,7 +103,7 @@ pub const Vault = struct {
         );
     }
 
-    fn fromFile(self: *Vault, allocator: std.mem.Allocator) !void {
+    fn fromFile(self: *Vault, allocator: Allocator) !void {
         const is_test = @import("builtin").is_test;
         const file_path = if (is_test)
             try storage.VaultPath.testing(allocator, null)
@@ -118,7 +119,7 @@ pub const Vault = struct {
         try format.deserializeVault(allocator, self, data_from_file);
     }
 
-    pub fn deinit(self: *Vault, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Vault, allocator: Allocator) void {
         pzcrypt.zeroAndMunlock(&self.vault_key);
         for (self.entries.items) |item| {
             allocator.free(item.ciphertext_name);
@@ -161,7 +162,7 @@ pub const Vault = struct {
 
     pub fn listEntries(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         out: *Writer,
         filter: ?[]const u8,
     ) !void {
@@ -197,7 +198,7 @@ pub const Vault = struct {
 
     pub fn addEntry(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         name: []const u8,
         data: []const u8,
     ) !void {
@@ -239,7 +240,7 @@ pub const Vault = struct {
 
     pub fn addEntryInteractive(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {
@@ -288,7 +289,7 @@ pub const Vault = struct {
 
     pub fn findEntryInteractive(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {
@@ -316,7 +317,7 @@ pub const Vault = struct {
 
     pub fn openEntryInteractive(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {
@@ -358,7 +359,7 @@ pub const Vault = struct {
 
     pub fn deleteEntry(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         index: usize,
     ) !void {
         if (index < 0 or index >= self.entries.items.len) {
@@ -371,7 +372,7 @@ pub const Vault = struct {
 
     pub fn deleteEntryInteractive(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {
@@ -400,7 +401,7 @@ pub const Vault = struct {
 
     pub fn save(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
     ) !void {
         const vault_serialized = try format.serializeVault(allocator, self);
         defer allocator.free(vault_serialized);
@@ -410,7 +411,7 @@ pub const Vault = struct {
 
     pub fn updatePassword(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         password: []const u8,
     ) !void {
         const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
@@ -429,7 +430,7 @@ pub const Vault = struct {
 
     pub fn updatePasswordInteractive(
         self: *Vault,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {

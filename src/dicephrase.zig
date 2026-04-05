@@ -3,8 +3,10 @@ const pzcrypt = @import("crypto.zig");
 const termios = @import("termios.zig");
 const words = @import("dicelist.zig").dice_words;
 
+const Allocator = std.mem.Allocator;
+
 pub fn runPassphraseGenerator(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     out: *std.io.Writer,
     in: *std.io.Reader,
     args: [][:0]u8,
@@ -35,7 +37,7 @@ pub fn runPassphraseGenerator(
 }
 
 pub fn generateDicePhrase(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     word_count: usize,
 ) ![]u8 {
     if (words.len < 7776)

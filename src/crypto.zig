@@ -3,12 +3,14 @@ const Vault = @import("vault.zig").Vault;
 const Config = @import("config.zig").Config;
 const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
+const Allocator = std.mem.Allocator;
+
 pub fn randomBytes(buf: []u8) void {
     std.crypto.random.bytes(buf);
 }
 
 pub fn deriveKey(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     password: []const u8,
     salt: []const u8,
 ) ![Config.KEY_LEN]u8 {
