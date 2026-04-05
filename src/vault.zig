@@ -10,6 +10,9 @@ const Reader = std.io.Reader;
 const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
 
+const pass = @import("passwordgen.zig");
+const dice = @import("dicephrase.zig");
+
 pub const Vault = struct {
     pub const ENTRY_LEN = Config.ENTRY_LEN;
 
@@ -244,45 +247,33 @@ pub const Vault = struct {
         out: *Writer,
         in: *Reader,
     ) !void {
-        var name: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
+        const name: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry name:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
         defer allocator.free(name);
 
-        while (true) {
-            try out.writeAll("\x1b[33mNew entry name:\x1b[0m ");
-            try out.flush();
-            const name_slice = takeDelimiter(out, in, '\n') catch return;
-            if (name_slice) |ns| {
-                if (ns.len == 0) return;
-                name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
-                if (name.len > 0) break else {
-                    try out.flush();
-                }
-            }
-        }
-        try flushInput(out, in);
-        try out.flush();
-
-        var data: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
+        const data: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry data:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
         defer allocator.free(data);
 
-        while (true) {
-            try out.writeAll("\x1b[33mNew entry data:\x1b[0m ");
-            try out.flush();
-            const data_slice = takeDelimiter(out, in, '\n') catch return;
-            if (data_slice) |ds| {
-                if (ds.len == 0) return;
-                data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
-                if (data.len > 0) break else {
-                    try out.flush();
-                }
-            }
-        }
-        try flushInput(out, in);
-        try out.flush();
-
         try self.addEntry(allocator, name, data);
+
         try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
         try out.flush();
+
         std.crypto.secureZero(u8, @constCast(name));
         std.crypto.secureZero(u8, @constCast(data));
     }
@@ -293,25 +284,19 @@ pub const Vault = struct {
         out: *Writer,
         in: *Reader,
     ) !void {
-        var name: []const u8 = undefined;
+        const name: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mFind:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
         defer allocator.free(name);
 
-        while (true) {
-            try out.writeAll("Find: ");
-            try out.flush();
-            const name_slice = try in.takeDelimiter('\n');
-            if (name_slice) |ns| {
-                name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
-                if (name.len > 0) break else {
-                    try out.writeAll("\n");
-                    try out.flush();
-                }
-            }
-        }
-        try out.writeAll("\n");
-        try out.flush();
-
         try self.listEntries(allocator, out, name);
+
         std.crypto.secureZero(u8, @constCast(name));
     }
 
@@ -434,76 +419,91 @@ pub const Vault = struct {
         out: *Writer,
         in: *Reader,
     ) !void {
-        var password: []const u8 = undefined;
+        const password: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mEnter new password:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
         defer allocator.free(password);
 
-        while (true) {
-            try out.writeAll("\x1b[33mEnter new password:\x1b[0m ");
-            try out.flush();
-            const password_slice = try in.takeDelimiter('\n');
-            if (password_slice) |ns| {
-                password = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
-                if (password.len > 0) break else {
-                    try out.flush();
-                }
-            }
-        }
         try out.writeAll("\n");
         try out.flush();
 
-        var password_confirmation: []const u8 = undefined;
+        const password_confirmation: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mConfirm new password:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
         defer allocator.free(password_confirmation);
 
-        while (true) {
-            try out.writeAll("\x1b[33mConfirm new password:\x1b[0m ");
-            try out.flush();
-            const password_confirmation_slice = try in.takeDelimiter('\n');
-            if (password_confirmation_slice) |ds| {
-                password_confirmation = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
-                if (password_confirmation.len > 0) break else {
-                    try out.flush();
-                }
-            }
-        }
         try out.writeAll("\n");
         try out.flush();
 
         if (std.mem.eql(u8, password, password_confirmation)) {
             try self.updatePassword(allocator, password);
         }
+
         try out.writeAll("\x1b[33mPassword successfully updated.\x1b[0m\n");
         try out.flush();
+
         std.crypto.secureZero(u8, @constCast(password));
         std.crypto.secureZero(u8, @constCast(password_confirmation));
     }
+};
 
-    pub fn takeDelimiter(
-        out: *Writer,
-        in: *Reader,
-        delimeter: u8,
-    ) !?[]u8 {
-        const slice = in.takeDelimiter(delimeter) catch |err| switch (err) {
-            error.StreamTooLong => {
-                try printInputTooLong(out, in.bufferedLen());
-                _ = try in.discardDelimiterInclusive('\n');
-                return err;
-            },
-            else => return err,
-        };
-        return slice;
-    }
+pub fn takeDelimiter(
+    out: *Writer,
+    in: *Reader,
+    delimeter: u8,
+) !?[]u8 {
+    const slice = in.takeDelimiter(delimeter) catch |err| switch (err) {
+        error.StreamTooLong => {
+            try printInputTooLong(out, in.bufferedLen());
+            _ = try in.discardDelimiterInclusive('\n');
+            return err;
+        },
+        else => return err,
+    };
+    return slice;
+}
 
-    pub fn flushInput(
-        out: *Writer,
-        in: *Reader,
-    ) !void {
-        while (true) {
-            if (in.bufferedLen() == 0) break else {
-                _ = try Vault.takeDelimiter(out, in, '\n');
-            }
+pub fn flushInput(
+    out: *Writer,
+    in: *Reader,
+) !void {
+    while (true) {
+        if (in.bufferedLen() == 0) break else {
+            _ = try takeDelimiter(out, in, '\n');
         }
     }
-};
+}
+
+fn getInput(
+    allocator: Allocator,
+    out: *Writer,
+    in: *Reader,
+    prompt: []const u8,
+) ![]u8 {
+    while (true) {
+        try out.writeAll(prompt);
+        try out.flush();
+        const input_string_slice = (try takeDelimiter(out, in, '\n')) orelse continue;
+        const input_string_trimmed = std.mem.trim(u8, input_string_slice, " \r\t");
+        if (input_string_trimmed.len == 0) return error.EmptyString;
+        const input_string = try allocator.dupe(u8, input_string_trimmed);
+        try flushInput(out, in);
+        try out.flush();
+        return input_string;
+    }
+}
 
 fn printWrongInput(out: *Writer) !void {
     try out.writeAll("\x1b[31mWrong input. Use entry index.\x1b[0m\n");

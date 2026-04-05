@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Vault = @import("vault.zig").Vault;
+const takeDelimiter = @import("vault.zig").takeDelimiter;
+const flushInput = @import("vault.zig").flushInput;
 
 const termios = @import("termios.zig");
 const pzcrypt = @import("crypto.zig");
@@ -25,8 +27,8 @@ pub fn run(
     try out.flush();
 
     try termios.set_terminal_pasword(&original_termios);
-    const user_password = try Vault.takeDelimiter(out, in, '\n');
-    try Vault.flushInput(out, in);
+    const user_password = try takeDelimiter(out, in, '\n');
+    try flushInput(out, in);
     termios.reset_terminal(&original_termios);
     try termios.set_terminal(&original_termios);
 
@@ -44,7 +46,7 @@ pub fn run(
     }
 
     while (true) {
-        try Vault.flushInput(out, in);
+        try flushInput(out, in);
         try Vault.short_help(out);
 
         try in.fillMore();

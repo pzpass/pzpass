@@ -45,7 +45,7 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
     var magic: [MAGIC.len]u8 = undefined;
     try r.readSliceAll(&magic);
     if (!std.mem.eql(u8, &magic, &MAGIC)) {
-        std.debug.panic("Not pzpazz vault file.\n", .{});
+        std.debug.panic("Not pzpass vault file.\n", .{});
     }
 
     const version = try r.takeInt(usize, .little);
@@ -137,15 +137,26 @@ test "serialize deserialize" {
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
     const dice = @import("dicephrase.zig");
+    const pass = @import("passwordgen.zig");
 
     const vault = try Vault.init(allocator, "blue-penguin");
     defer vault.deinit(allocator);
 
     for (0..3) |_| {
-        const name = try dice.generateDicePhrase(allocator, 2);
+        const name = try dice.generateDicePhrase(allocator, 20);
         defer allocator.free(name);
 
-        const data = try dice.generateDicePhrase(allocator, 5);
+        const data = try dice.generateDicePhrase(allocator, 50);
+        defer allocator.free(data);
+
+        try vault.addEntry(allocator, name, data);
+    }
+
+    for (0..3) |_| {
+        const name = try pass.generate(allocator, Vault.ENTRY_LEN);
+        defer allocator.free(name);
+
+        const data = try pass.generate(allocator, Vault.ENTRY_LEN);
         defer allocator.free(data);
 
         try vault.addEntry(allocator, name, data);

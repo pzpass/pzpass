@@ -1,9 +1,7 @@
 const std = @import("std");
-const dice = @import("dicephrase.zig");
 
+const dice = @import("dicephrase.zig");
 const Vault = @import("vault.zig").Vault;
-const storage = @import("storage.zig");
-const format = @import("format.zig");
 const interactive = @import("interactive.zig");
 const pzcrypt = @import("crypto.zig");
 
@@ -59,4 +57,11 @@ fn printUsage() !void {
         \\  pass [password_length]   Generate a secure password
         \\
     , .{});
+}
+
+test "vault" {
+    const allocator = std.testing.allocator;
+
+    var vault = try Vault.init(allocator, "blue-penguin");
+    defer vault.deinit(allocator);
 }
