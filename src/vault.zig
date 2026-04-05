@@ -447,6 +447,7 @@ pub const Vault = struct {
                 }
             }
         }
+        try out.writeAll("\n");
         try out.flush();
 
         var password_confirmation: []const u8 = undefined;
@@ -463,6 +464,7 @@ pub const Vault = struct {
                 }
             }
         }
+        try out.writeAll("\n");
         try out.flush();
 
         if (std.mem.eql(u8, password, password_confirmation)) {
