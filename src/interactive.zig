@@ -2,7 +2,6 @@ const std = @import("std");
 
 const Vault = @import("vault.zig").Vault;
 
-const storage = @import("storage.zig");
 const termios = @import("termios.zig");
 const pzcrypt = @import("crypto.zig");
 
@@ -41,9 +40,6 @@ pub fn run(
     } else {
         try out.writeAll("Null password is not valid.");
     }
-
-    const file_path = try storage.VaultPath.default(allocator, null);
-    defer allocator.free(file_path);
 
     while (true) {
         try Vault.flushInput(out, in);
@@ -95,10 +91,10 @@ pub fn run(
                 try termios.set_terminal(&original_termios);
             },
             'i' => {
-                try out.print("\x1b[33mVault stored as:\n{s}\x1b[0m\n", .{file_path});
+                try vault.info(out);
             },
             's' => {
-                try vault.save(allocator, file_path);
+                try vault.save(allocator);
                 try out.writeAll("\x1b[33mVault saved to disk.\x1b[0m\n");
             },
             'h' => {
@@ -116,7 +112,7 @@ pub fn run(
     const confirm = try in.takeByte();
     switch (confirm) {
         'n', 'N' => {},
-        else => try vault.save(allocator, file_path),
+        else => try vault.save(allocator),
     }
 
     try out.flush();
