@@ -1,10 +1,12 @@
 const std = @import("std");
 
+const Allocator = std.mem.Allocator;
+
 pub const VaultPath = struct {
     vault_dir: []const u8,
     filename: []const u8,
 
-    pub fn default(allocator: std.mem.Allocator, filename: ?[]const u8) ![]u8 {
+    pub fn default(allocator: Allocator, filename: ?[]const u8) ![]u8 {
         const home = try std.process.getEnvVarOwned(allocator, "HOME");
         defer allocator.free(home);
 
@@ -29,7 +31,7 @@ pub const VaultPath = struct {
         );
     }
 
-    pub fn testing(allocator: std.mem.Allocator, filename: ?[]const u8) ![]u8 {
+    pub fn testing(allocator: Allocator, filename: ?[]const u8) ![]u8 {
         const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
         defer allocator.free(cwd);
 
@@ -54,7 +56,7 @@ pub const VaultPath = struct {
 };
 
 pub fn readFileAlloc(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     path: []const u8,
 ) ![]u8 {
     const file = try std.fs.cwd().openFile(path, .{});

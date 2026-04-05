@@ -8,8 +8,10 @@ const pzcrypt = @import("crypto.zig");
 const Reader = std.io.Reader;
 const Writer = std.io.Writer;
 
+const Allocator = std.mem.Allocator;
+
 pub fn run(
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     out: *Writer,
     in: *Reader,
 ) !void {
