@@ -247,11 +247,11 @@ pub const Vault = struct {
         defer allocator.free(name);
 
         while (true) {
-            try out.writeAll("\x1b[33mNew entry name or \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
+            try out.writeAll("\x1b[33mNew entry name:\x1b[0m ");
             try out.flush();
             const name_slice = takeDelimiter(out, in, '\n') catch return;
             if (name_slice) |ns| {
-                if (std.mem.eql(u8, ns, "quit")) return;
+                if (ns.len == 0) return;
                 name = try allocator.dupe(u8, std.mem.trim(u8, ns, " \r\t"));
                 if (name.len > 0) break else {
                     try out.flush();
@@ -265,11 +265,11 @@ pub const Vault = struct {
         defer allocator.free(data);
 
         while (true) {
-            try out.writeAll("\x1b[33mNew entry data or \x1b[0mquit\x1b[33m to exit:\x1b[0m ");
+            try out.writeAll("\x1b[33mNew entry data:\x1b[0m ");
             try out.flush();
             const data_slice = takeDelimiter(out, in, '\n') catch return;
             if (data_slice) |ds| {
-                if (std.mem.eql(u8, ds, "quit")) return;
+                if (ds.len == 0) return;
                 data = try allocator.dupe(u8, std.mem.trim(u8, ds, " \r\t"));
                 if (data.len > 0) break else {
                     try out.flush();
