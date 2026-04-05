@@ -48,6 +48,5 @@ test "password length" {
     const pw = try generate(allocator, 16);
     defer allocator.free(pw);
 
-    std.debug.print("{s}\n", .{pw});
     try std.testing.expect(pw.len == 16);
 }

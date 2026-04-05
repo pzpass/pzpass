@@ -11,5 +11,5 @@ pub const Config = packed struct {
     pub const ITERATIONS = 3;
     pub const PARALLELISM = 1;
 
-    pub const ENTRY_LEN = 256;
+    pub const ENTRY_LEN = 4096;
 };
