@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const MAGIC = @import("config.zig").MAGIC;
 const Config = @import("config.zig").Config;
 const storage = @import("storage.zig");
@@ -35,6 +36,24 @@ pub const Vault = struct {
         tag_data: [Config.TAG_LEN]u8,
         ciphertext_name: []u8,
         ciphertext_data: []u8,
+
+        pub fn init(
+            n_name: []const u8,
+            n_data: []const u8,
+            t_name: []const u8,
+            t_data: []const u8,
+            c_name: []u8,
+            c_data: []u8,
+        ) Entry {
+            return .{
+                .nonce_name = n_name[0..Config.NONCE_LEN].*,
+                .nonce_data = n_data[0..Config.NONCE_LEN].*,
+                .tag_name = t_name[0..Config.TAG_LEN].*,
+                .tag_data = t_data[0..Config.TAG_LEN].*,
+                .ciphertext_name = c_name,
+                .ciphertext_data = c_data,
+            };
+        }
     };
 
     vault_key: [Config.KEY_LEN]u8,
@@ -220,28 +239,24 @@ pub const Vault = struct {
         std.crypto.random.bytes(nonce_name);
         std.crypto.random.bytes(nonce_data);
 
-        std.crypto.random.bytes(tag_name);
-        std.crypto.random.bytes(tag_data);
-
         const ciphertext_name = try allocator.alloc(u8, name.len);
-
         const ciphertext_data = try allocator.alloc(u8, data.len);
 
-        var entry: Vault.Entry = .{
-            .nonce_name = nonce_name[0..Config.NONCE_LEN].*,
-            .nonce_data = nonce_data[0..Config.NONCE_LEN].*,
-            .ciphertext_name = ciphertext_name,
-            .ciphertext_data = ciphertext_data,
-            .tag_name = tag_name[0..Config.TAG_LEN].*,
-            .tag_data = tag_data[0..Config.TAG_LEN].*,
-        };
+        var entry = Vault.Entry.init(
+            nonce_name,
+            nonce_data,
+            tag_name,
+            tag_data,
+            ciphertext_name,
+            ciphertext_data,
+        );
 
         pzcrypt.encrypt(&entry, self.vault_key, name, data);
 
         try self.entries.append(allocator, entry);
     }
 
-    pub fn addEntryInteractive(
+    pub fn addEntryPrompt(
         self: *Vault,
         allocator: Allocator,
         out: *Writer,
@@ -278,7 +293,7 @@ pub const Vault = struct {
         std.crypto.secureZero(u8, @constCast(data));
     }
 
-    pub fn findEntryInteractive(
+    pub fn findEntryPrompt(
         self: *Vault,
         allocator: Allocator,
         out: *Writer,
@@ -300,20 +315,20 @@ pub const Vault = struct {
         std.crypto.secureZero(u8, @constCast(name));
     }
 
-    pub fn openEntryInteractive(
+    pub fn openEntryPrompt(
         self: *Vault,
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {
-        try out.writeAll("\x1b[33mOpen item index:\x1b[0m ");
-        try out.flush();
-        const index_slice_option = try in.takeDelimiter('\n');
-        const index_slice = index_slice_option orelse return printWrongInput(out);
-        const index = std.fmt.parseInt(usize, index_slice, 10) catch return printWrongInput(out);
-
-        try out.writeAll("\n");
-        try out.flush();
+        const index = getInputNumeric(
+            out,
+            in,
+            "\x1b[33mOpen item index:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.WrongInput => return,
+            else => return err,
+        };
 
         if (index < 0 or index >= self.entries.items.len) {
             try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
@@ -355,29 +370,27 @@ pub const Vault = struct {
         allocator.free(entry.ciphertext_data);
     }
 
-    pub fn deleteEntryInteractive(
+    pub fn deleteEntryPrompt(
         self: *Vault,
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
     ) !void {
-        try out.writeAll("\x1b[33mDelete item index:\x1b[0m ");
-        try out.flush();
+        const index = getInputNumeric(
+            out,
+            in,
+            "\x1b[33mDelete item index:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.WrongInput => return printWrongInput(out),
+            else => return err,
+        };
 
-        const index_slice_option = try in.takeDelimiter('\n');
-        const index_slice = index_slice_option orelse return printWrongInput(out);
-
-        const index = std.fmt.parseInt(usize, index_slice, 10) catch return printWrongInput(out);
-
-        try out.writeAll("\n");
-        try out.flush();
+        if (index < 0 or index >= self.entries.items.len) {
+            return printOutOfBounds(out);
+        }
 
         self.deleteEntry(allocator, index) catch |err| switch (err) {
-            error.OutOfBounbds => {
-                try out.writeAll("\x1b[31mIndex is out of bounds.\x1b[0m\n");
-                try out.flush();
-                return;
-            },
+            error.OutOfBounbds => return printOutOfBounds(out),
             else => return err,
         };
         try out.print("\x1b[33mEntry {d} deleted successfully.\x1b[0m\n", .{index});
@@ -413,7 +426,7 @@ pub const Vault = struct {
         );
     }
 
-    pub fn updatePasswordInteractive(
+    pub fn updatePasswordPrompt(
         self: *Vault,
         allocator: Allocator,
         out: *Writer,
@@ -505,6 +518,24 @@ fn getInput(
     }
 }
 
+fn getInputNumeric(
+    out: *Writer,
+    in: *Reader,
+    prompt: []const u8,
+) !usize {
+    try out.writeAll(prompt);
+    try out.flush();
+
+    const index_slice_option = try in.takeDelimiter('\n');
+    const index_slice = index_slice_option orelse return error.WrongInput;
+
+    const index = std.fmt.parseInt(usize, index_slice, 10) catch error.WrongInput;
+
+    try out.writeAll("\n");
+    try out.flush();
+    return index;
+}
+
 fn printWrongInput(out: *Writer) !void {
     try out.writeAll("\x1b[31mWrong input. Use entry index.\x1b[0m\n");
     try out.flush();
@@ -513,6 +544,12 @@ fn printWrongInput(out: *Writer) !void {
 
 fn printInputTooLong(out: *Writer, length: usize) !void {
     try out.print("\x1b[31mInput is too long. Max length is {d}.\x1b[0m\n", .{length});
+    try out.flush();
+    return;
+}
+
+fn printOutOfBounds(out: *Writer) !void {
+    try out.writeAll("\x1b[31mIndex is out of bounds.\x1b[0m\n");
     try out.flush();
     return;
 }
@@ -527,10 +564,4 @@ test "init" {
     try vault.deleteEntry(allocator, 0);
 
     try vault.updatePassword(allocator, "orange-tiger");
-
-    //var out_buff: [4096]u8 = undefined;
-    //var stdout = std.fs.File.stdout().writer(&out_buff);
-    //const out = &stdout.interface;
-
-    // try vault.listEntries(allocator, out);
 }

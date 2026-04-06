@@ -17,6 +17,8 @@ pub fn run(
     out: *Writer,
     in: *Reader,
 ) !void {
+    var vault_changed = false;
+
     var original_termios: std.os.linux.termios = undefined;
     defer termios.reset_terminal(&original_termios);
 
@@ -57,14 +59,16 @@ pub fn run(
             'a' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.addEntryInteractive(allocator, out, in);
+                try vault.addEntryPrompt(allocator, out, in);
+                vault_changed = true;
 
                 try termios.set_terminal(&original_termios);
             },
             'd' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.deleteEntryInteractive(allocator, out, in);
+                try vault.deleteEntryPrompt(allocator, out, in);
+                vault_changed = true;
 
                 try termios.set_terminal(&original_termios);
             },
@@ -74,14 +78,14 @@ pub fn run(
             'f' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.findEntryInteractive(allocator, out, in);
+                try vault.findEntryPrompt(allocator, out, in);
 
                 try termios.set_terminal(&original_termios);
             },
             'o' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.openEntryInteractive(allocator, out, in);
+                try vault.openEntryPrompt(allocator, out, in);
 
                 try termios.set_terminal(&original_termios);
             },
@@ -89,7 +93,8 @@ pub fn run(
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal_pasword(&original_termios);
 
-                try vault.updatePasswordInteractive(allocator, out, in);
+                try vault.updatePasswordPrompt(allocator, out, in);
+                vault_changed = true;
 
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal(&original_termios);
@@ -100,6 +105,7 @@ pub fn run(
             's' => {
                 try vault.save(allocator);
                 try out.writeAll("\x1b[33mVault saved to disk.\x1b[0m\n");
+                vault_changed = false;
             },
             'h' => {
                 try Vault.help(out);
@@ -109,14 +115,16 @@ pub fn run(
         try out.flush();
     }
 
-    try out.writeAll("\x1b[33mSave vault? [Y/n]]\x1b[0m\n");
-    try out.flush();
+    if (vault_changed) {
+        try out.writeAll("\x1b[33mSave vault? [Y/n]]\x1b[0m\n");
+        try out.flush();
 
-    try in.fillMore();
-    const confirm = try in.takeByte();
-    switch (confirm) {
-        'n', 'N' => {},
-        else => try vault.save(allocator),
+        try in.fillMore();
+        const confirm = try in.takeByte();
+        switch (confirm) {
+            'n', 'N' => {},
+            else => try vault.save(allocator),
+        }
     }
 
     try out.flush();
