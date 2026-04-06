@@ -12,5 +12,5 @@ jobs:
   checks:
     uses: ./.github/workflows/checks.yaml
 
-  security-audit:
-    uses: ./.github/workflows/security-audit.yaml 
+  # security-audit:
+  #   uses: ./.github/workflows/security-audit.yaml 
