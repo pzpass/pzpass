@@ -85,22 +85,16 @@ pzp
 
 > CLI is intentionally minimal and may evolve.
 
-### Generate a password
+### Generate password
 
 ```bash
 pzp pw <length>
 ```
 
-### Generate a diceware password
+### Generate diceware password
 
 ```bash
 pzp dice <word-count>
-```
-
-### Generate password
-
-```bash
-pzp gen
 ```
 
 ---
