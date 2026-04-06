@@ -484,6 +484,9 @@ pub const Vault = struct {
         _ = self.entries.swapRemove(index);
         try out.writeAll("\x1b[33mEntry updated successfully.\x1b[0m\n");
         try out.flush();
+
+        std.crypto.secureZero(u8, @constCast(name));
+        std.crypto.secureZero(u8, @constCast(data));
     }
 
     pub fn deleteEntry(
