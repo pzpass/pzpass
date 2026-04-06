@@ -64,6 +64,14 @@ pub fn run(
 
                 try termios.set_terminal(&original_termios);
             },
+            'e' => {
+                termios.reset_terminal(&original_termios);
+
+                try vault.editEntryPrompt(allocator, out, in);
+                vault_changed = true;
+
+                try termios.set_terminal(&original_termios);
+            },
             'g' => {
                 termios.reset_terminal(&original_termios);
 

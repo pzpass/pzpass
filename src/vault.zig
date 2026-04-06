@@ -156,6 +156,7 @@ pub const Vault = struct {
             \\
             \\Press 'a' add an entry
             \\      'g' generate an entry
+            \\      'e' edit an entry
             \\      'l' list entries
             \\      'f' find entries
             \\      'o' open an entry
@@ -179,7 +180,7 @@ pub const Vault = struct {
 
     pub fn short_help(out: *Writer) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
-        try out.writeAll("a - add, g - generate, d - delete, f - find, l - list, o - open, h - more commands\n");
+        try out.writeAll("a - add, g - generate, d - delete, f - find, e - edit, o - open, h - more commands\n");
         try out.flush();
     }
 
@@ -413,6 +414,75 @@ pub const Vault = struct {
 
         try pzcrypt.decrypt(&item, self.vault_key, name, data);
         try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ name, data });
+        try out.flush();
+    }
+
+    pub fn editEntryPrompt(
+        self: *Vault,
+        allocator: Allocator,
+        out: *Writer,
+        in: *Reader,
+    ) !void {
+        const index = getInputNumeric(
+            out,
+            in,
+            "\x1b[33mItem index:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.WrongInput => return,
+            else => return err,
+        };
+
+        if (index < 0 or index >= self.entries.items.len) {
+            try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
+            try out.flush();
+            return;
+        }
+
+        var item = self.entries.items[index];
+
+        var name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
+
+        var data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
+        try pzcrypt.mlockSlice(data);
+        defer {
+            pzcrypt.zeroAndMunlock(data);
+            allocator.free(data);
+        }
+
+        try pzcrypt.decrypt(&item, self.vault_key, name, data);
+        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ name, data });
+        try out.flush();
+
+        name = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => name,
+            else => return err,
+        };
+
+        data = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => data,
+            else => return err,
+        };
+
+        pzcrypt.encrypt(&item, self.vault_key, name, data);
+        try self.addEntry(allocator, name, data);
+
+        _ = self.entries.swapRemove(index);
+        try out.writeAll("\x1b[33mEntry updated successfully.\x1b[0m\n");
         try out.flush();
     }
 
