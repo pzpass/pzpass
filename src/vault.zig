@@ -155,6 +155,7 @@ pub const Vault = struct {
         try out.writeAll(
             \\
             \\Press 'a' add an entry
+            \\      'g' generate an entry
             \\      'l' list entries
             \\      'f' find entries
             \\      'o' open an entry
@@ -178,7 +179,7 @@ pub const Vault = struct {
 
     pub fn short_help(out: *Writer) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
-        try out.writeAll("a - add, d - delete, f - find, l -list, o - open, h - more commands\n");
+        try out.writeAll("a - add, g - generate, d - delete, f - find, l - list, o - open, h - more commands\n");
         try out.flush();
     }
 
@@ -282,6 +283,64 @@ pub const Vault = struct {
             error.EmptyString => return,
             else => return err,
         };
+        defer allocator.free(data);
+
+        try self.addEntry(allocator, name, data);
+
+        try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
+        try out.flush();
+
+        std.crypto.secureZero(u8, @constCast(name));
+        std.crypto.secureZero(u8, @constCast(data));
+    }
+
+    pub fn addPasswordPrompt(
+        self: *Vault,
+        allocator: Allocator,
+        out: *Writer,
+        in: *Reader,
+    ) !void {
+        const name: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry name:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
+        defer allocator.free(name);
+
+        const option: []u8 = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mPut \x1b[0mdice\x1b[33m or \x1b[0mpass\x1b[33m :\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => return,
+            else => return err,
+        };
+        defer allocator.free(option);
+
+        if (std.mem.eql(u8, "dice", option) or std.mem.eql(u8, "pass", option)) {} else {
+            try out.writeAll("\x1b[33mOnly valid options are \x1b[0mdice\x1b[33m or \x1b[0mpass\x1b[33m :\x1b[0m\n");
+            try out.flush();
+            return;
+        }
+
+        const length = getInputNumeric(
+            out,
+            in,
+            "\x1b[33mLength:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.WrongInput => return,
+            else => return err,
+        };
+
+        const data = if (std.mem.eql(u8, option, "dice"))
+            try dice.generateDicePhrase(allocator, length)
+        else
+            try pass.generate(allocator, length);
         defer allocator.free(data);
 
         try self.addEntry(allocator, name, data);
