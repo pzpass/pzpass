@@ -3,7 +3,7 @@ name: security
 on:
   workflow_call:
   push:
-    brancehd-exclude:
+    branches-ignore:
       - main
 
 permissions:
