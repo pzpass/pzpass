@@ -1,4 +1,4 @@
-name: Security Audit
+name: security
 
 on:
   workflow_call:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  security-audit:
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
