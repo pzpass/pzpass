@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   checks:
-    uses: ./checks.yaml
+    uses: ./.github/workflows/checks.yaml
 
   security-audit:
-    uses: ./security-audit.yaml 
+    uses: ./.github/workflows/security-audit.yaml 
