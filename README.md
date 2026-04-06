@@ -102,10 +102,10 @@ pzp dice <word-count>
 ## Security Notes
 
 - Passwords are never stored
+- Revealed records secureley wiped in memory
 - Vault key is never stored in plaintext
 - All secrets are encrypted at rest
 - Changing password requires re-wrapping the vault key
-- Rotating the vault key requires re-encrypting all entries
 
 ---
 
