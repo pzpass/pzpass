@@ -263,14 +263,14 @@ pub const Vault = struct {
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
-    ) !void {
+    ) !bool {
         const name: []u8 = getInput(
             allocator,
             out,
             in,
             "\x1b[33mNew entry name:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => return,
+            error.EmptyString => return false,
             else => return err,
         };
         defer allocator.free(name);
@@ -281,7 +281,7 @@ pub const Vault = struct {
             in,
             "\x1b[33mNew entry data:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => return,
+            error.EmptyString => return false,
             else => return err,
         };
         defer allocator.free(data);
@@ -293,6 +293,8 @@ pub const Vault = struct {
 
         std.crypto.secureZero(u8, @constCast(name));
         std.crypto.secureZero(u8, @constCast(data));
+
+        return true;
     }
 
     pub fn addPasswordPrompt(
@@ -300,14 +302,14 @@ pub const Vault = struct {
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
-    ) !void {
+    ) !bool {
         const name: []u8 = getInput(
             allocator,
             out,
             in,
             "\x1b[33mNew entry name:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => return,
+            error.EmptyString => return false,
             else => return err,
         };
         defer allocator.free(name);
@@ -318,7 +320,7 @@ pub const Vault = struct {
             in,
             "\x1b[33mPut \x1b[0mdice\x1b[33m or \x1b[0mpass\x1b[33m :\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => return,
+            error.EmptyString => return false,
             else => return err,
         };
         defer allocator.free(option);
@@ -326,7 +328,7 @@ pub const Vault = struct {
         if (std.mem.eql(u8, "dice", option) or std.mem.eql(u8, "pass", option)) {} else {
             try out.writeAll("\x1b[33mOnly valid options are \x1b[0mdice\x1b[33m or \x1b[0mpass\x1b[33m :\x1b[0m\n");
             try out.flush();
-            return;
+            return false;
         }
 
         const length = getInputNumeric(
@@ -334,7 +336,7 @@ pub const Vault = struct {
             in,
             "\x1b[33mLength:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.WrongInput => return,
+            error.WrongInput => return false,
             else => return err,
         };
 
@@ -351,6 +353,8 @@ pub const Vault = struct {
 
         std.crypto.secureZero(u8, @constCast(name));
         std.crypto.secureZero(u8, @constCast(data));
+
+        return true;
     }
 
     pub fn findEntryPrompt(
@@ -422,20 +426,20 @@ pub const Vault = struct {
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
-    ) !void {
+    ) !bool {
         const index = getInputNumeric(
             out,
             in,
             "\x1b[33mItem index:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.WrongInput => return,
+            error.WrongInput => return false,
             else => return err,
         };
 
         if (index < 0 or index >= self.entries.items.len) {
             try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
             try out.flush();
-            return;
+            return false;
         }
 
         var item = self.entries.items[index];
@@ -487,6 +491,8 @@ pub const Vault = struct {
 
         std.crypto.secureZero(u8, @constCast(name));
         std.crypto.secureZero(u8, @constCast(data));
+
+        return true;
     }
 
     pub fn deleteEntry(
@@ -507,26 +513,35 @@ pub const Vault = struct {
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
-    ) !void {
+    ) !bool {
         const index = getInputNumeric(
             out,
             in,
             "\x1b[33mDelete item index:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.WrongInput => return printWrongInput(out),
+            error.WrongInput => {
+                try printWrongInput(out);
+                return false;
+            },
             else => return err,
         };
 
         if (index < 0 or index >= self.entries.items.len) {
-            return printOutOfBounds(out);
+            try printOutOfBounds(out);
+            return false;
         }
 
         self.deleteEntry(allocator, index) catch |err| switch (err) {
-            error.OutOfBounbds => return printOutOfBounds(out),
+            error.OutOfBounbds => {
+                try printOutOfBounds(out);
+                return false;
+            },
             else => return err,
         };
         try out.print("\x1b[33mEntry {d} deleted successfully.\x1b[0m\n", .{index});
         try out.flush();
+
+        return true;
     }
 
     pub fn save(
@@ -563,14 +578,14 @@ pub const Vault = struct {
         allocator: Allocator,
         out: *Writer,
         in: *Reader,
-    ) !void {
+    ) !bool {
         const password: []u8 = getInput(
             allocator,
             out,
             in,
             "\x1b[33mEnter new password:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => return,
+            error.EmptyString => return false,
             else => return err,
         };
         defer allocator.free(password);
@@ -584,7 +599,7 @@ pub const Vault = struct {
             in,
             "\x1b[33mConfirm new password:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => return,
+            error.EmptyString => return false,
             else => return err,
         };
         defer allocator.free(password_confirmation);
@@ -592,15 +607,18 @@ pub const Vault = struct {
         try out.writeAll("\n");
         try out.flush();
 
-        if (std.mem.eql(u8, password, password_confirmation)) {
-            try self.updatePassword(allocator, password);
+        if (!std.mem.eql(u8, password, password_confirmation)) {
+            return false;
         }
+        try self.updatePassword(allocator, password);
 
         try out.writeAll("\x1b[33mPassword successfully updated.\x1b[0m\n");
         try out.flush();
 
         std.crypto.secureZero(u8, @constCast(password));
         std.crypto.secureZero(u8, @constCast(password_confirmation));
+
+        return true;
     }
 };
 
