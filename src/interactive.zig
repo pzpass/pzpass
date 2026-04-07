@@ -59,32 +59,28 @@ pub fn run(
             'a' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.addEntryPrompt(allocator, out, in);
-                vault_changed = true;
+                vault_changed = try vault.addEntryPrompt(allocator, out, in) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'e' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.editEntryPrompt(allocator, out, in);
-                vault_changed = true;
+                vault_changed = try vault.editEntryPrompt(allocator, out, in) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'g' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.addPasswordPrompt(allocator, out, in);
-                vault_changed = true;
+                vault_changed = try vault.addPasswordPrompt(allocator, out, in) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'd' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.deleteEntryPrompt(allocator, out, in);
-                vault_changed = true;
+                vault_changed = try vault.deleteEntryPrompt(allocator, out, in) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
@@ -109,8 +105,7 @@ pub fn run(
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal_pasword(&original_termios);
 
-                try vault.updatePasswordPrompt(allocator, out, in);
-                vault_changed = true;
+                vault_changed = try vault.updatePasswordPrompt(allocator, out, in) or vault_changed;
 
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal(&original_termios);
