@@ -18,6 +18,9 @@ pub fn run(
     in: *Reader,
 ) !void {
     var vault_changed = false;
+    try out.writeAll("\x1b[?1049h");
+    try out.flush();
+    defer resetBuffer(out);
 
     var original_termios: std.os.linux.termios = undefined;
     defer termios.reset_terminal(&original_termios);
@@ -137,8 +140,11 @@ pub fn run(
             else => try vault.save(allocator),
         }
     }
+}
 
-    try out.flush();
+fn resetBuffer(out: *Writer) void {
+    out.writeAll("\x1b[?1049l") catch {};
+    out.flush() catch {};
 }
 
 test "try run" {
