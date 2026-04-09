@@ -30,7 +30,10 @@ pub fn run() !void {
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
-        try interactive.run(allocator, out, stdin);
+        interactive.run(allocator, out, stdin) catch {
+            try out.writeAll("\x1b[?1049l");
+            try out.flush();
+        };
         return;
     }
     defer std.process.argsFree(allocator, args);
