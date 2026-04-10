@@ -12,17 +12,31 @@ const Writer = std.io.Writer;
 
 const Allocator = std.mem.Allocator;
 
+const posix = std.posix;
+var keep_running = std.atomic.Value(bool).init(true);
+fn sigIntHandler(sig: i32) callconv(.c) void {
+    _ = sig;
+    keep_running.store(false, .monotonic);
+}
+
 pub fn run(
     allocator: Allocator,
     out: *Writer,
     in: *Reader,
 ) !void {
+    var act = posix.Sigaction{
+        .handler = .{ .handler = sigIntHandler },
+        .mask = posix.sigemptyset(),
+        .flags = 0,
+    };
+    posix.sigaction(posix.SIG.INT, &act, null);
+
     var vault_changed = false;
     try out.writeAll("\x1b[?1049h");
     try out.flush();
     defer resetBuffer(out);
 
-    var original_termios: std.os.linux.termios = undefined;
+    var original_termios: posix.termios = undefined;
     defer termios.reset_terminal(&original_termios);
 
     var vault = try allocator.create(Vault);
@@ -50,7 +64,7 @@ pub fn run(
         try out.writeAll("Null password is not valid.");
     }
 
-    while (true) {
+    while (keep_running.load(.monotonic)) {
         try flushInput(out, in);
         try Vault.short_help(out);
 
