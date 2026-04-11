@@ -180,7 +180,7 @@ pub const Vault = struct {
 
     pub fn short_help(out: *Writer) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
-        try out.writeAll("a - add, g - generate, d - delete, f - find, e - edit, o - open, h - more commands\n");
+        try out.writeAll("a - add, g - generate, d - delete, f - find, e - edit, o - open, h - help\n");
         try out.flush();
     }
 
