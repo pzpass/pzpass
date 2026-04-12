@@ -138,8 +138,12 @@ test "serialize deserialize" {
     const expectEqualSlices = std.testing.expectEqualSlices;
     const dice = @import("dicephrase.zig");
     const pass = @import("passwordgen.zig");
+    const storage = @import("storage.zig");
 
-    const vault = try Vault.init(allocator, "blue-penguin");
+    const file_path = try storage.VaultPath.testing(allocator, "vault.dat");
+    defer allocator.free(file_path);
+
+    const vault = try Vault.init(allocator, "blue-penguin", file_path);
     defer vault.deinit(allocator);
 
     for (0..3) |_| {
@@ -187,11 +191,6 @@ test "serialize deserialize" {
         try expectEqualSlices(u8, entry.ciphertext_data, ff.ciphertext_data);
         try expectEqualSlices(u8, &entry.tag_data, &ff.tag_data);
     }
-
-    const storage = @import("storage.zig");
-
-    const file_path = try storage.VaultPath.testing(allocator, "vault.dat");
-    defer allocator.free(file_path);
 
     try storage.writeFile(file_path, vault_serialized);
 
