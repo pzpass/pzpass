@@ -30,7 +30,7 @@ pub fn run() !void {
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
-        interactive.run(allocator, out, stdin) catch |err| {
+        interactive.run(allocator, out, stdin, null) catch |err| {
             try out.writeAll("\x1b[?1049l");
             try out.flush();
             return err;
@@ -45,6 +45,14 @@ pub fn run() !void {
         try dice.runPassphraseGenerator(allocator, out, stdin, args);
     } else if (std.mem.startsWith(u8, "password", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, out, args);
+    } else if (std.mem.eql(u8, "-f", cmd)) {
+        const vault_path = if (args[2].len > 0) args[2] else return error.NoFileNameGiven;
+        interactive.run(allocator, out, stdin, vault_path) catch |err| {
+            try out.writeAll("\x1b[?1049l");
+            try out.flush();
+            return err;
+        };
+        return;
     } else {
         try printUsage();
     }
@@ -54,7 +62,8 @@ pub fn run() !void {
 
 fn printUsage() !void {
     std.debug.print(
-        \\pzp - pEasy password manager
+        \\pEasy password manager
+        \\pzp [ -f <vault_file_name>]
         \\
         \\Commands:
         \\  dice [word_count]        Generate a dice passphrase
@@ -66,6 +75,6 @@ fn printUsage() !void {
 test "vault" {
     const allocator = std.testing.allocator;
 
-    var vault = try Vault.init(allocator, "blue-penguin");
+    var vault = try Vault.init(allocator, "blue-penguin", "test.vault.dat");
     defer vault.deinit(allocator);
 }

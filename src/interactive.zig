@@ -23,6 +23,7 @@ pub fn run(
     allocator: Allocator,
     out: *Writer,
     in: *Reader,
+    vault_path: ?[]const u8,
 ) !void {
     var act = posix.Sigaction{
         .handler = .{ .handler = sigIntHandler },
@@ -57,7 +58,7 @@ pub fn run(
         try pzcrypt.mlockSlice(password);
         defer pzcrypt.zeroAndMunlock(password);
 
-        vault = try Vault.init(allocator, password);
+        vault = try Vault.init(allocator, password, vault_path);
 
         std.crypto.secureZero(u8, password);
     } else {

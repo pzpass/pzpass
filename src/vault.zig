@@ -59,11 +59,14 @@ pub const Vault = struct {
     vault_key: [Config.KEY_LEN]u8,
     entries: std.ArrayList(Entry),
     header: Header,
-    file_path: []u8,
+    file_path: []const u8,
 
-    pub fn init(allocator: Allocator, password: []const u8) !*Vault {
+    pub fn init(allocator: Allocator, password: []const u8, vault_path: ?[]const u8) !*Vault {
         var self = try allocator.create(Vault);
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
+
+        self.file_path = vault_path orelse
+            try storage.VaultPath.default(allocator, null);
 
         self.fromFile(allocator) catch try self.new(allocator, password);
 
@@ -126,15 +129,6 @@ pub const Vault = struct {
     }
 
     fn fromFile(self: *Vault, allocator: Allocator) !void {
-        const is_test = @import("builtin").is_test;
-        const file_path = if (is_test)
-            try storage.VaultPath.testing(allocator, null)
-        else
-            try storage.VaultPath.default(allocator, null);
-        defer allocator.free(file_path);
-
-        self.file_path = file_path;
-
         const data_from_file = try storage.readFileAlloc(allocator, self.file_path);
         defer allocator.free(data_from_file);
 
@@ -706,8 +700,10 @@ fn printOutOfBounds(out: *Writer) !void {
 
 test "init" {
     const allocator = std.testing.allocator;
+    const file_path = try storage.VaultPath.testing(allocator, null);
+    defer allocator.free(file_path);
 
-    var vault = try Vault.init(allocator, "blue-penguin");
+    var vault = try Vault.init(allocator, "blue-penguin", file_path);
     defer vault.deinit(allocator);
 
     try vault.addEntry(allocator, "test", "test data");
