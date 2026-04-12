@@ -525,17 +525,57 @@ pub const Vault = struct {
             return false;
         }
 
-        self.deleteEntry(allocator, index) catch |err| switch (err) {
-            error.OutOfBounbds => {
-                try printOutOfBounds(out);
-                return false;
-            },
+        const item = self.entries.items[index];
+
+        var name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
+
+        name = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mEntry name:\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => name,
             else => return err,
         };
-        try out.print("\x1b[33mEntry {d} deleted successfully.\x1b[0m\n", .{index});
-        try out.flush();
 
-        return true;
+        const entry_name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+        try pzcrypt.mlockSlice(entry_name);
+        defer {
+            pzcrypt.zeroAndMunlock(entry_name);
+            allocator.free(entry_name);
+        }
+
+        const entry_data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
+        try pzcrypt.mlockSlice(entry_data);
+        defer {
+            pzcrypt.zeroAndMunlock(entry_data);
+            allocator.free(entry_data);
+        }
+
+        try pzcrypt.decrypt(&item, self.vault_key, entry_name, entry_data);
+
+        if (std.mem.eql(u8, name, entry_name)) {
+            self.deleteEntry(allocator, index) catch |err| switch (err) {
+                error.OutOfBounbds => {
+                    try printOutOfBounds(out);
+                    return false;
+                },
+                else => return err,
+            };
+            try out.print("\x1b[33mEntry {d} deleted successfully.\x1b[0m\n", .{index});
+            try out.flush();
+            return true;
+        } else {
+            try out.writeAll("\x1b[33mName does not match.\x1b[0m\n");
+            try out.flush();
+            return false;
+        }
     }
 
     pub fn save(
