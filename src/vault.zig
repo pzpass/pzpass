@@ -384,7 +384,7 @@ pub const Vault = struct {
             in,
             "\x1b[33mOpen item index:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.WrongInput => return,
+            error.WrongInput => return printWrongInput(out),
             else => return err,
         };
 
