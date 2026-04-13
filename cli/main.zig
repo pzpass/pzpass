@@ -5,6 +5,6 @@ pub fn main() !void {
     try pzpass.run();
 }
 
-test "dummy" {
+test "dummy test" {
     try std.testing.expect(true);
 }
