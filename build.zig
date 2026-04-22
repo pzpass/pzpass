@@ -81,11 +81,18 @@ pub fn build(b: *std.Build) void {
     dice_list_gen_step.dependOn(&write_file_dice_list_gen.step);
     exe.step.dependOn(dice_list_gen_step);
 
-    const clean_up_tmp = b.addRemoveDirTree(b.path("tmp"));
-    const clean_up = b.addRemoveDirTree(b.path("zig-out"));
-    const clean_step = b.step("clean", "Clean up");
-    clean_step.dependOn(&clean_up.step);
-    clean_step.dependOn(&clean_up_tmp.step);
+    const clean_up = b.addExecutable(.{
+        .name = "clean_up",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/clean_helper.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_clean_up = b.addRunArtifact(clean_up);
+    const clean_up_step = b.step("clean", "Clean up");
+    clean_up_step.dependOn(&run_clean_up.step);
 }
 
 fn createDirectory(path: []const u8) void {
@@ -98,8 +105,9 @@ fn createDirectory(path: []const u8) void {
 }
 
 fn buildLocalBinPath(allocator: std.mem.Allocator) []const u8 {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| {
-        std.debug.panic("Could not find home directory: {}\n", .{err});
+    const env_map = std.process.getEnvMap(allocator) catch @panic("OOM");
+    const home = env_map.get("HOME") orelse {
+        std.debug.panic("Could not find home directory.\n", .{});
     };
     const local_bin_path = std.fs.path.join(allocator, &[_][]const u8{
         home,

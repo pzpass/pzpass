@@ -15,6 +15,11 @@ const pass = @import("passwordgen.zig");
 const dice = @import("dicephrase.zig");
 
 pub const Vault = struct {
+    pub const Options = struct {
+        out: *Writer,
+        in: *Reader,
+    };
+
     pub const ENTRY_LEN = Config.ENTRY_LEN;
 
     pub const Header = struct {
@@ -255,9 +260,10 @@ pub const Vault = struct {
     pub fn addEntryPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !bool {
+        const out = options.out;
+        const in = options.in;
         const name: []u8 = getInput(
             allocator,
             out,
@@ -294,9 +300,10 @@ pub const Vault = struct {
     pub fn addPasswordPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !bool {
+        const out = options.out;
+        const in = options.in;
         const name: []u8 = getInput(
             allocator,
             out,
@@ -354,9 +361,10 @@ pub const Vault = struct {
     pub fn findEntryPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !void {
+        const out = options.out;
+        const in = options.in;
         const name: []u8 = getInput(
             allocator,
             out,
@@ -376,9 +384,10 @@ pub const Vault = struct {
     pub fn openEntryPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !void {
+        const out = options.out;
+        const in = options.in;
         const index = getInputNumeric(
             out,
             in,
@@ -418,9 +427,10 @@ pub const Vault = struct {
     pub fn editEntryPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !bool {
+        const out = options.out;
+        const in = options.in;
         const index = getInputNumeric(
             out,
             in,
@@ -505,9 +515,10 @@ pub const Vault = struct {
     pub fn deleteEntryPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !bool {
+        const out = options.out;
+        const in = options.in;
         const index = getInputNumeric(
             out,
             in,
@@ -610,9 +621,10 @@ pub const Vault = struct {
     pub fn updatePasswordPrompt(
         self: *Vault,
         allocator: Allocator,
-        out: *Writer,
-        in: *Reader,
+        options: Options,
     ) !bool {
+        const out = options.out;
+        const in = options.in;
         const password: []u8 = getInput(
             allocator,
             out,

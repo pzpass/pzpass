@@ -17,8 +17,8 @@ pub fn run() !void {
     try pzcrypt.mlockSlice(@constCast(stdout_buff));
     defer pzcrypt.zeroAndMunlock(stdout_buff);
 
-    var stdout = std.fs.File.stdout().writer(stdout_buff);
-    const out = &stdout.interface;
+    var stdout_file = std.fs.File.stdout().writer(stdout_buff);
+    const stdout = &stdout_file.interface;
 
     const stdin_buff: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
     defer allocator.free(stdin_buff);
@@ -28,11 +28,16 @@ pub fn run() !void {
     try pzcrypt.mlockSlice(@constCast(stdin_buff));
     defer pzcrypt.zeroAndMunlock(stdin_buff);
 
+    const prompt_options: Vault.Options = .{
+        .out = stdout,
+        .in = stdin,
+    };
+
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
-        interactive.run(allocator, out, stdin, null) catch |err| {
-            try out.writeAll("\x1b[?1049l");
-            try out.flush();
+        interactive.run(allocator, prompt_options, null) catch |err| {
+            try stdout.writeAll("\x1b[?1049l");
+            try stdout.flush();
             return err;
         };
         return;
@@ -42,14 +47,14 @@ pub fn run() !void {
     const cmd = args[1];
 
     if (std.mem.startsWith(u8, "dicephrase", cmd)) {
-        try dice.runPassphraseGenerator(allocator, out, stdin, args);
+        try dice.runPassphraseGenerator(allocator, stdout, stdin, args);
     } else if (std.mem.startsWith(u8, "password", cmd)) {
-        try passwordgen.runPasswordGenerator(allocator, out, args);
+        try passwordgen.runPasswordGenerator(allocator, stdout, args);
     } else if (std.mem.eql(u8, "-f", cmd)) {
         const vault_path = if (args[2].len > 0) args[2] else return error.NoFileNameGiven;
-        interactive.run(allocator, out, stdin, vault_path) catch |err| {
-            try out.writeAll("\x1b[?1049l");
-            try out.flush();
+        interactive.run(allocator, prompt_options, vault_path) catch |err| {
+            try stdout.writeAll("\x1b[?1049l");
+            try stdout.flush();
             return err;
         };
         return;
@@ -57,7 +62,7 @@ pub fn run() !void {
         try printUsage();
     }
 
-    try out.flush();
+    try stdout.flush();
 }
 
 fn printUsage() !void {

@@ -21,10 +21,15 @@ fn sigIntHandler(sig: i32) callconv(.c) void {
 
 pub fn run(
     allocator: Allocator,
-    out: *Writer,
-    in: *Reader,
+    options: Vault.Options,
     vault_path: ?[]const u8,
 ) !void {
+    const out = options.out;
+    const in = options.in;
+    const prompt_options: Vault.Options = .{
+        .out = out,
+        .in = in,
+    };
     var act = posix.Sigaction{
         .handler = .{ .handler = sigIntHandler },
         .mask = posix.sigemptyset(),
@@ -77,28 +82,28 @@ pub fn run(
             'a' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.addEntryPrompt(allocator, out, in) or vault_changed;
+                vault_changed = try vault.addEntryPrompt(allocator, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'e' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.editEntryPrompt(allocator, out, in) or vault_changed;
+                vault_changed = try vault.editEntryPrompt(allocator, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'g' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.addPasswordPrompt(allocator, out, in) or vault_changed;
+                vault_changed = try vault.addPasswordPrompt(allocator, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'd' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.deleteEntryPrompt(allocator, out, in) or vault_changed;
+                vault_changed = try vault.deleteEntryPrompt(allocator, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
@@ -108,14 +113,14 @@ pub fn run(
             'f' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.findEntryPrompt(allocator, out, in);
+                try vault.findEntryPrompt(allocator, prompt_options);
 
                 try termios.set_terminal(&original_termios);
             },
             'o' => {
                 termios.reset_terminal(&original_termios);
 
-                try vault.openEntryPrompt(allocator, out, in);
+                try vault.openEntryPrompt(allocator, prompt_options);
 
                 try termios.set_terminal(&original_termios);
             },
@@ -123,7 +128,7 @@ pub fn run(
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal_pasword(&original_termios);
 
-                vault_changed = try vault.updatePasswordPrompt(allocator, out, in) or vault_changed;
+                vault_changed = try vault.updatePasswordPrompt(allocator, prompt_options) or vault_changed;
 
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal(&original_termios);
@@ -164,12 +169,17 @@ fn resetBuffer(out: *Writer) void {
 
 test "try run" {
     var out_buff: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&out_buff);
-    const out = &stdout.interface;
+    var stdout_file = std.fs.File.stdout().writer(&out_buff);
+    const stdout = &stdout_file.interface;
 
     var stdin_buff: [256]u8 = undefined;
     var stdin_reader = std.fs.File.stdin().reader(&stdin_buff);
     const stdin = &stdin_reader.interface;
 
-    try run(std.testing.allocator, out, stdin);
+    const prompt_options: Vault.Options = .{
+        .out = stdout,
+        .in = stdin,
+    };
+
+    try run(std.testing.allocator, prompt_options);
 }
