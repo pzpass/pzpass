@@ -7,8 +7,8 @@ const flushInput = @import("vault.zig").flushInput;
 const termios = @import("termios.zig");
 const pzcrypt = @import("crypto.zig");
 
-const Reader = std.io.Reader;
-const Writer = std.io.Writer;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
 
@@ -21,8 +21,11 @@ fn sigIntHandler(sig: i32) callconv(.c) void {
 
 pub fn run(
     allocator: Allocator,
+    io: std.Io,
     options: Vault.Options,
-    vault_path: ?[]const u8,
+    base_dir_name: []const u8,
+    sub_dir_name: []const u8,
+    file_name: []const u8,
 ) !void {
     const out = options.out;
     const in = options.in;
@@ -30,12 +33,12 @@ pub fn run(
         .out = out,
         .in = in,
     };
-    var act = posix.Sigaction{
-        .handler = .{ .handler = sigIntHandler },
-        .mask = posix.sigemptyset(),
-        .flags = 0,
-    };
-    posix.sigaction(posix.SIG.INT, &act, null);
+    // var act = posix.Sigaction{
+    //     .handler = .{ .handler = sigIntHandler },
+    //     .mask = posix.sigemptyset(),
+    //     .flags = 0,
+    // };
+    // posix.sigaction(posix.SIG.INT, &act, null);
 
     var vault_changed = false;
     try out.writeAll("\x1b[?1049h");
@@ -63,7 +66,14 @@ pub fn run(
         try pzcrypt.mlockSlice(password);
         defer pzcrypt.zeroAndMunlock(password);
 
-        vault = try Vault.init(allocator, password, vault_path);
+        vault = try Vault.init(
+            allocator,
+            io,
+            password,
+            base_dir_name,
+            sub_dir_name,
+            file_name,
+        );
 
         std.crypto.secureZero(u8, password);
     } else {
@@ -82,21 +92,21 @@ pub fn run(
             'a' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.addEntryPrompt(allocator, prompt_options) or vault_changed;
+                vault_changed = try vault.addEntryPrompt(allocator, io, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'e' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.editEntryPrompt(allocator, prompt_options) or vault_changed;
+                vault_changed = try vault.editEntryPrompt(allocator, io, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
             'g' => {
                 termios.reset_terminal(&original_termios);
 
-                vault_changed = try vault.addPasswordPrompt(allocator, prompt_options) or vault_changed;
+                vault_changed = try vault.addPasswordPrompt(allocator, io, prompt_options) or vault_changed;
 
                 try termios.set_terminal(&original_termios);
             },
@@ -128,7 +138,7 @@ pub fn run(
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal_pasword(&original_termios);
 
-                vault_changed = try vault.updatePasswordPrompt(allocator, prompt_options) or vault_changed;
+                vault_changed = try vault.updatePasswordPrompt(allocator, io, prompt_options) or vault_changed;
 
                 termios.reset_terminal(&original_termios);
                 try termios.set_terminal(&original_termios);
@@ -137,7 +147,7 @@ pub fn run(
                 try vault.info(out);
             },
             's' => {
-                try vault.save(allocator);
+                try vault.save(allocator, io, base_dir_name, sub_dir_name, file_name);
                 try out.writeAll("\x1b[33mVault saved to disk.\x1b[0m\n");
                 vault_changed = false;
             },
@@ -157,7 +167,7 @@ pub fn run(
         const confirm = try in.takeByte();
         switch (confirm) {
             'n', 'N' => {},
-            else => try vault.save(allocator),
+            else => try vault.save(allocator, io, base_dir_name, sub_dir_name, file_name),
         }
     }
 }
@@ -165,21 +175,4 @@ pub fn run(
 fn resetBuffer(out: *Writer) void {
     out.writeAll("\x1b[?1049l") catch {};
     out.flush() catch {};
-}
-
-test "try run" {
-    var out_buff: [4096]u8 = undefined;
-    var stdout_file = std.fs.File.stdout().writer(&out_buff);
-    const stdout = &stdout_file.interface;
-
-    var stdin_buff: [256]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buff);
-    const stdin = &stdin_reader.interface;
-
-    const prompt_options: Vault.Options = .{
-        .out = stdout,
-        .in = stdin,
-    };
-
-    try run(std.testing.allocator, prompt_options);
 }

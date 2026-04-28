@@ -3,38 +3,38 @@ const tools = @import("toolbox_utils.zig");
 
 const debug = false;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
+    const args = try init.minimal.args.toSlice(allocator);
     if (args.len < 3) std.debug.panic("wrong number of arguments", .{});
 
     const conf_file = args[1];
     const output_file = args[2];
 
-    std.fs.cwd().access(conf_file, .{}) catch |err| switch (err) {
-        error.FileNotFound => try getWordList(allocator, conf_file),
+    std.Io.Dir.cwd().access(init.io, conf_file, .{}) catch |err| switch (err) {
+        error.FileNotFound => try getWordList(init, allocator, conf_file),
         else => {
             std.debug.print("{}\n", .{err});
         },
     };
 
-    const read_file = try std.fs.cwd().openFile(conf_file, .{});
-    defer read_file.close();
+    const read_file = try std.Io.Dir.cwd().openFile(init.io, conf_file, .{});
+    defer read_file.close(init.io);
 
     var read_buff: [4096]u8 = undefined;
-    var read_file_reader = read_file.reader(&read_buff);
+    var read_file_reader = read_file.reader(init.io, &read_buff);
     const read_file_interface = &read_file_reader.interface;
 
-    var file = try std.fs.cwd().createFile(output_file, .{
+    var file = try std.Io.Dir.cwd().createFile(init.io, output_file, .{
         .truncate = true,
     });
-    defer file.close();
+    defer file.close(init.io);
 
     var file_write_buf: [4096]u8 = undefined;
-    var writer = file.writerStreaming(&file_write_buf);
+    var writer = file.writerStreaming(init.io, &file_write_buf);
     const writer_interface = &writer.interface;
 
     try writer_interface.writeAll(
@@ -131,6 +131,6 @@ pub fn main() !void {
     try writer_interface.flush();
 }
 
-fn getWordList(allocator: std.mem.Allocator, destination: []const u8) !void {
-    try tools.downloadFile(allocator, "https://github.com/pzpass/pzpass/blob/v0.0.0/dict/words.txt", destination);
+fn getWordList(init: std.process.Init, allocator: std.mem.Allocator, destination: []const u8) !void {
+    try tools.downloadFile(init, allocator, "https://github.com/pzpass/pzpass/blob/v0.0.0/dict/words.txt", destination);
 }

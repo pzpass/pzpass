@@ -8,14 +8,15 @@ const charset =
 
 pub fn runPasswordGenerator(
     allocator: std.mem.Allocator,
-    out: *std.io.Writer,
-    args: [][:0]u8,
+    io: std.Io,
+    out: *std.Io.Writer,
+    args: []const [:0]const u8,
 ) !void {
     const password_length = if (args.len > 2)
         std.fmt.parseInt(usize, args[2], 10) catch 20
     else
         20;
-    const pw = try generate(allocator, password_length);
+    const pw = try generate(allocator, io, password_length);
     defer {
         pzcrypt.zeroAndMunlock(pw);
         allocator.free(pw);
@@ -25,13 +26,17 @@ pub fn runPasswordGenerator(
 
 pub fn generate(
     allocator: std.mem.Allocator,
+    io: std.Io,
     len: usize,
 ) ![]u8 {
     const out = try allocator.alloc(u8, len);
     try pzcrypt.mlockSlice(out);
 
+    const rng_impl: std.Random.IoSource = .{ .io = io };
+    const rng = rng_impl.interface();
+
     for (out) |*c| {
-        const idx = std.crypto.random.intRangeLessThan(
+        const idx = rng.intRangeLessThan(
             usize,
             0,
             charset.len,
@@ -44,8 +49,9 @@ pub fn generate(
 
 test "password length" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
-    const pw = try generate(allocator, 16);
+    const pw = try generate(allocator, io, 16);
     defer allocator.free(pw);
 
     try std.testing.expect(pw.len == 16);

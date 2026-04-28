@@ -7,8 +7,8 @@ const format = @import("format.zig");
 const pzcrypt = @import("crypto.zig");
 
 const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-const Reader = std.io.Reader;
-const Writer = std.io.Writer;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
 const pass = @import("passwordgen.zig");
@@ -64,18 +64,33 @@ pub const Vault = struct {
     vault_key: [Config.KEY_LEN]u8,
     entries: std.ArrayList(Entry),
     header: Header,
-    file_path: []const u8,
+    file_path: []u8,
 
-    pub fn init(allocator: Allocator, password: []const u8, vault_path: ?[]const u8) !*Vault {
+    pub fn init(
+        allocator: Allocator,
+        io: std.Io,
+        password: []const u8,
+        base_dir: []const u8,
+        sub_dir: []const u8,
+        file_name: []const u8,
+    ) !*Vault {
         var self = try allocator.create(Vault);
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
 
-        self.file_path = vault_path orelse
-            try storage.VaultPath.default(allocator, null);
+        var buff: [256]u8 = undefined;
+        self.file_path = try std.fmt.bufPrint(
+            &buff,
+            "{s}/{s}/{s}",
+            .{
+                base_dir,
+                sub_dir,
+                file_name,
+            },
+        );
 
-        self.fromFile(allocator) catch try self.new(allocator, password);
+        self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch try self.new(allocator, io, password);
 
-        const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        const password_key = try pzcrypt.deriveKey(allocator, io, password, &self.header.salt);
         try pzcrypt.mlockSlice(@constCast(&password_key));
         defer pzcrypt.zeroAndMunlock(&password_key);
 
@@ -100,8 +115,15 @@ pub const Vault = struct {
         return self;
     }
 
-    fn new(self: *Vault, allocator: Allocator, password: []const u8) !void {
-        std.crypto.random.bytes(&self.vault_key);
+    fn new(
+        self: *Vault,
+        allocator: Allocator,
+        io: std.Io,
+        password: []const u8,
+    ) !void {
+        const rng_impl: std.Random.IoSource = .{ .io = io };
+        const rng = rng_impl.interface();
+        rng.bytes(&self.vault_key);
         try pzcrypt.mlockSlice(&self.vault_key);
 
         self.header = .{
@@ -116,10 +138,10 @@ pub const Vault = struct {
             .kek_tag = undefined,
         };
 
-        std.crypto.random.bytes(&self.header.salt);
-        std.crypto.random.bytes(&self.header.kek_nonce);
+        rng.bytes(&self.header.salt);
+        rng.bytes(&self.header.kek_nonce);
 
-        const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        const password_key = try pzcrypt.deriveKey(allocator, io, password, &self.header.salt);
         try pzcrypt.mlockSlice(@constCast(&password_key));
         defer pzcrypt.zeroAndMunlock(&password_key);
 
@@ -133,8 +155,15 @@ pub const Vault = struct {
         );
     }
 
-    fn fromFile(self: *Vault, allocator: Allocator) !void {
-        const data_from_file = try storage.readFileAlloc(allocator, self.file_path);
+    fn fromFile(
+        self: *Vault,
+        allocator: Allocator,
+        io: std.Io,
+        base_dir: []const u8,
+        sub_dir: []const u8,
+        file_name: []const u8,
+    ) !void {
+        const data_from_file = try storage.readFileAlloc(allocator, io, base_dir, sub_dir, file_name);
         defer allocator.free(data_from_file);
 
         try format.deserializeVault(allocator, self, data_from_file);
@@ -222,6 +251,7 @@ pub const Vault = struct {
     pub fn addEntry(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
         name: []const u8,
         data: []const u8,
     ) !void {
@@ -237,8 +267,10 @@ pub const Vault = struct {
         const tag_data = try allocator.alloc(u8, Config.TAG_LEN);
         defer allocator.free(tag_data);
 
-        std.crypto.random.bytes(nonce_name);
-        std.crypto.random.bytes(nonce_data);
+        const rng_impl: std.Random.IoSource = .{ .io = io };
+        const rng = rng_impl.interface();
+        rng.bytes(nonce_name);
+        rng.bytes(nonce_data);
 
         const ciphertext_name = try allocator.alloc(u8, name.len);
         const ciphertext_data = try allocator.alloc(u8, data.len);
@@ -260,6 +292,7 @@ pub const Vault = struct {
     pub fn addEntryPrompt(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
         options: Options,
     ) !bool {
         const out = options.out;
@@ -286,7 +319,7 @@ pub const Vault = struct {
         };
         defer allocator.free(data);
 
-        try self.addEntry(allocator, name, data);
+        try self.addEntry(allocator, io, name, data);
 
         try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
         try out.flush();
@@ -300,6 +333,7 @@ pub const Vault = struct {
     pub fn addPasswordPrompt(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
         options: Options,
     ) !bool {
         const out = options.out;
@@ -342,12 +376,12 @@ pub const Vault = struct {
         };
 
         const data = if (std.mem.eql(u8, option, "dice"))
-            try dice.generateDicePhrase(allocator, length)
+            try dice.generateDicePhrase(allocator, io, length)
         else
-            try pass.generate(allocator, length);
+            try pass.generate(allocator, io, length);
         defer allocator.free(data);
 
-        try self.addEntry(allocator, name, data);
+        try self.addEntry(allocator, io, name, data);
 
         try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
         try out.flush();
@@ -427,6 +461,7 @@ pub const Vault = struct {
     pub fn editEntryPrompt(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
         options: Options,
     ) !bool {
         const out = options.out;
@@ -487,7 +522,7 @@ pub const Vault = struct {
         };
 
         pzcrypt.encrypt(&item, self.vault_key, name, data);
-        try self.addEntry(allocator, name, data);
+        try self.addEntry(allocator, io, name, data);
 
         _ = self.entries.swapRemove(index);
         try out.writeAll("\x1b[33mEntry updated successfully.\x1b[0m\n");
@@ -577,7 +612,6 @@ pub const Vault = struct {
                     try printOutOfBounds(out);
                     return false;
                 },
-                else => return err,
             };
             try out.print("\x1b[33mEntry {d} deleted successfully.\x1b[0m\n", .{index});
             try out.flush();
@@ -592,19 +626,31 @@ pub const Vault = struct {
     pub fn save(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
+        base_dir: []const u8,
+        sub_dir: []const u8,
+        file_name: []const u8,
     ) !void {
         const vault_serialized = try format.serializeVault(allocator, self);
         defer allocator.free(vault_serialized);
 
-        try storage.writeFile(self.file_path, vault_serialized);
+        try storage.writeFile(
+            allocator,
+            io,
+            base_dir,
+            sub_dir,
+            file_name,
+            vault_serialized,
+        );
     }
 
     pub fn updatePassword(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
         password: []const u8,
     ) !void {
-        const password_key = try pzcrypt.deriveKey(allocator, password, &self.header.salt);
+        const password_key = try pzcrypt.deriveKey(allocator, io, password, &self.header.salt);
         try pzcrypt.mlockSlice(@constCast(&password_key));
         defer pzcrypt.zeroAndMunlock(&password_key);
 
@@ -621,6 +667,7 @@ pub const Vault = struct {
     pub fn updatePasswordPrompt(
         self: *Vault,
         allocator: Allocator,
+        io: std.Io,
         options: Options,
     ) !bool {
         const out = options.out;
@@ -656,7 +703,7 @@ pub const Vault = struct {
         if (!std.mem.eql(u8, password, password_confirmation)) {
             return false;
         }
-        try self.updatePassword(allocator, password);
+        try self.updatePassword(allocator, io, password);
 
         try out.writeAll("\x1b[33mPassword successfully updated.\x1b[0m\n");
         try out.flush();
@@ -752,14 +799,19 @@ fn printOutOfBounds(out: *Writer) !void {
 
 test "init" {
     const allocator = std.testing.allocator;
-    const file_path = try storage.VaultPath.testing(allocator, null);
+    const io = std.testing.io;
+    const env = std.testing.environ;
+
+    const cwd = env.getPosix("PWD") orelse unreachable;
+
+    const file_path = try storage.VaultPath.default(allocator, io, cwd, "vault.vault.dat");
     defer allocator.free(file_path);
 
-    var vault = try Vault.init(allocator, "blue-penguin", file_path);
+    var vault = try Vault.init(allocator, io, "blue-penguin", cwd, ".pzpass", "vault.vault.dat");
     defer vault.deinit(allocator);
 
-    try vault.addEntry(allocator, "test", "test data");
+    try vault.addEntry(allocator, io, "test", "test data");
     try vault.deleteEntry(allocator, 0);
 
-    try vault.updatePassword(allocator, "orange-tiger");
+    try vault.updatePassword(allocator, io, "orange-tiger");
 }

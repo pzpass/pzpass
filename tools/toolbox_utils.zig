@@ -1,15 +1,15 @@
 const std = @import("std");
 
-pub fn downloadFile(allocator: std.mem.Allocator, url: []const u8, destination: []const u8) !void {
-    var file = try std.fs.cwd().createFile(destination, .{
+pub fn downloadFile(init: std.process.Init, allocator: std.mem.Allocator, url: []const u8, destination: []const u8) !void {
+    var file = try std.Io.Dir.cwd().createFile(init.io, destination, .{
         .truncate = true,
     });
-    defer file.close();
+    defer file.close(init.io);
 
     var file_write_buf: [4096]u8 = undefined;
-    var file_writer = file.writerStreaming(&file_write_buf);
+    var file_writer = file.writerStreaming(init.io, &file_write_buf);
 
-    var client = std.http.Client{ .allocator = allocator };
+    var client = std.http.Client{ .io = init.io, .allocator = allocator };
 
     const uri = try std.Uri.parse(url);
     const res = client.fetch(.{
@@ -17,7 +17,6 @@ pub fn downloadFile(allocator: std.mem.Allocator, url: []const u8, destination: 
         .location = .{ .uri = uri },
         .response_writer = &file_writer.interface,
     }) catch |err| switch (err) {
-        error.TemporaryNameServerFailure => return,
         else => std.debug.panic("Error during fetch: {}\n", .{err}),
     };
     if (res.status != .ok) {
@@ -26,7 +25,7 @@ pub fn downloadFile(allocator: std.mem.Allocator, url: []const u8, destination: 
 }
 
 fn printFileLineByLineExceptCommentsAndEmptyLines(file_path: []const u8) !void {
-    const read_file = try std.fs.cwd().openFile(file_path, .{ .mode = .read_only });
+    const read_file = try std.Io.Dir.cwd().openFile(file_path, .{ .mode = .read_only });
     defer read_file.close();
 
     var read_buff: [4096]u8 = undefined;
