@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
     if (optimize == .ReleaseFast) {
         mod.strip = true;
         exe.root_module.strip = true;
-        b.install_path = buildLocalBinPath(b.allocator);
+        b.install_path = buildLocalBinPath(b.allocator, b.graph.environ_map.get("HOME"));
         const install_exe = b.addInstallArtifact(exe, .{
             .dest_dir = .{ .override = .prefix },
         });
@@ -104,13 +104,9 @@ fn createDirectory(path: []const u8) void {
     };
 }
 
-fn buildLocalBinPath(allocator: std.mem.Allocator) []const u8 {
-    const env_map = std.process.getEnvMap(allocator) catch @panic("OOM");
-    const home = env_map.get("HOME") orelse {
-        std.debug.panic("Could not find home directory.\n", .{});
-    };
+fn buildLocalBinPath(allocator: std.mem.Allocator, home: ?[]const u8) []const u8 {
     const local_bin_path = std.fs.path.join(allocator, &[_][]const u8{
-        home,
+        home.?,
         ".local/bin",
     }) catch |err| {
         std.debug.panic("Could not local bin path: {}\n", .{err});

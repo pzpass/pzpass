@@ -7,9 +7,10 @@ const Allocator = std.mem.Allocator;
 
 pub fn runPassphraseGenerator(
     allocator: Allocator,
-    out: *std.io.Writer,
-    in: *std.io.Reader,
-    args: [][:0]u8,
+    io: std.Io,
+    out: *std.Io.Writer,
+    in: *std.Io.Reader,
+    args: []const [:0]const u8,
 ) !void {
     const word_count = if (args.len > 2)
         std.fmt.parseInt(usize, args[2], 10) catch 5
@@ -20,7 +21,7 @@ pub fn runPassphraseGenerator(
         try termios.set_terminal(&original_termios);
         defer termios.reset_terminal(&original_termios);
 
-        const dicephrase = try generateDicePhrase(allocator, word_count);
+        const dicephrase = try generateDicePhrase(allocator, io, word_count);
         defer {
             pzcrypt.zeroAndMunlock(dicephrase);
             allocator.free(dicephrase);
@@ -38,12 +39,14 @@ pub fn runPassphraseGenerator(
 
 pub fn generateDicePhrase(
     allocator: Allocator,
+    io: std.Io,
     word_count: usize,
 ) ![]u8 {
     if (words.len < 7776)
         return error.InvalidWordList;
 
-    var rng = std.crypto.random;
+    const rng_impl: std.Random.IoSource = .{ .io = io };
+    const rng = rng_impl.interface();
 
     var selected = try std.ArrayList([]const u8).initCapacity(allocator, word_count);
     defer selected.deinit(allocator);
@@ -65,8 +68,9 @@ pub fn generateDicePhrase(
 
 test "generated prase word count" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
-    const dicephrase = try generateDicePhrase(allocator, 5);
+    const dicephrase = try generateDicePhrase(allocator, io, 5);
     defer allocator.free(dicephrase);
 
     try std.testing.expect(dicephrase.len > 0);

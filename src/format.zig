@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 
 const MAGIC = @import("config.zig").MAGIC;
 const Config = @import("config.zig").Config;
@@ -12,20 +14,30 @@ pub fn serializeVault(allocator: Allocator, vault: *Vault) ![]u8 {
     defer data.deinit(allocator);
 
     try data.appendSlice(allocator, &vault.header.magic);
-    try data.writer(allocator).writeInt(usize, vault.header.version, .little);
+    var buff: [@sizeOf(usize)]u8 = undefined;
+    std.mem.writeInt(usize, &buff, vault.header.version, .little);
+    try data.appendSlice(allocator, &buff);
     try data.appendSlice(allocator, &vault.header.salt);
-    try data.writer(allocator).writeInt(usize, vault.header.iterations, .little);
-    try data.writer(allocator).writeInt(u32, vault.header.mem_cost, .little);
-    try data.writer(allocator).writeInt(usize, vault.header.parallelism, .little);
+    std.mem.writeInt(usize, &buff, vault.header.iterations, .little);
+    try data.appendSlice(allocator, &buff);
+    var buff_u32: [@sizeOf(u32)]u8 = undefined;
+    std.mem.writeInt(u32, &buff_u32, vault.header.mem_cost, .little);
+    try data.appendSlice(allocator, &buff_u32);
+    std.mem.writeInt(usize, &buff, vault.header.parallelism, .little);
+    try data.appendSlice(allocator, &buff);
     try data.appendSlice(allocator, &vault.header.kek_nonce);
     try data.appendSlice(allocator, &vault.header.kek_ciphertext);
     try data.appendSlice(allocator, &vault.header.kek_tag);
-    try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little);
-    try data.writer(allocator).writeInt(usize, vault.entries.items.len, .little); // double for control
+    std.mem.writeInt(usize, &buff, vault.entries.items.len, .little);
+    try data.appendSlice(allocator, &buff);
+    std.mem.writeInt(usize, &buff, vault.entries.items.len, .little);
+    try data.appendSlice(allocator, &buff);
 
     for (vault.entries.items) |entry| {
-        try data.writer(allocator).writeInt(usize, entry.ciphertext_name.len, .little);
-        try data.writer(allocator).writeInt(usize, entry.ciphertext_data.len, .little);
+        std.mem.writeInt(usize, &buff, entry.ciphertext_name.len, .little);
+        try data.appendSlice(allocator, &buff);
+        std.mem.writeInt(usize, &buff, entry.ciphertext_data.len, .little);
+        try data.appendSlice(allocator, &buff);
 
         try data.appendSlice(allocator, &entry.nonce_name);
         try data.appendSlice(allocator, &entry.nonce_data);
@@ -40,7 +52,7 @@ pub fn serializeVault(allocator: Allocator, vault: *Vault) ![]u8 {
 }
 
 pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) !void {
-    var r = std.io.Reader.fixed(bytes);
+    var r = Reader.fixed(bytes);
 
     var magic: [MAGIC.len]u8 = undefined;
     try r.readSliceAll(&magic);
@@ -134,36 +146,47 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
 
 test "serialize deserialize" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const env = std.testing.environ;
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
+
     const dice = @import("dicephrase.zig");
     const pass = @import("passwordgen.zig");
     const storage = @import("storage.zig");
 
-    const file_path = try storage.VaultPath.testing(allocator, "vault.dat");
-    defer allocator.free(file_path);
+    const home = env.getPosix("PWD") orelse unreachable;
+    const sub_dir_name = ".pzpass";
+    const file_name = "format.vault.dat";
 
-    const vault = try Vault.init(allocator, "blue-penguin", file_path);
+    const vault = try Vault.init(
+        allocator,
+        io,
+        "blue-penguin",
+        home,
+        sub_dir_name,
+        file_name,
+    );
     defer vault.deinit(allocator);
 
     for (0..3) |_| {
-        const name = try dice.generateDicePhrase(allocator, 20);
+        const name = try dice.generateDicePhrase(allocator, io, 20);
         defer allocator.free(name);
 
-        const data = try dice.generateDicePhrase(allocator, 50);
+        const data = try dice.generateDicePhrase(allocator, io, 50);
         defer allocator.free(data);
 
-        try vault.addEntry(allocator, name, data);
+        try vault.addEntry(allocator, io, name, data);
     }
 
     for (0..3) |_| {
-        const name = try pass.generate(allocator, Vault.ENTRY_LEN);
+        const name = try pass.generate(allocator, io, Vault.ENTRY_LEN);
         defer allocator.free(name);
 
-        const data = try pass.generate(allocator, Vault.ENTRY_LEN);
+        const data = try pass.generate(allocator, io, Vault.ENTRY_LEN);
         defer allocator.free(data);
 
-        try vault.addEntry(allocator, name, data);
+        try vault.addEntry(allocator, io, name, data);
     }
 
     const vault_serialized = try serializeVault(allocator, vault);
@@ -192,9 +215,9 @@ test "serialize deserialize" {
         try expectEqualSlices(u8, &entry.tag_data, &ff.tag_data);
     }
 
-    try storage.writeFile(file_path, vault_serialized);
+    try storage.writeFile(allocator, io, home, sub_dir_name, file_name, vault_serialized);
 
-    const data_from_file = try storage.readFileAlloc(allocator, file_path);
+    const data_from_file = try storage.readFileAlloc(allocator, io, home, sub_dir_name, file_name);
     defer allocator.free(data_from_file);
 
     const vault_from_file = try allocator.create(Vault);

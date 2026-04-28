@@ -11,6 +11,7 @@ pub fn randomBytes(buf: []u8) void {
 
 pub fn deriveKey(
     allocator: Allocator,
+    io: std.Io,
     password: []const u8,
     salt: []const u8,
 ) ![Config.KEY_LEN]u8 {
@@ -28,6 +29,7 @@ pub fn deriveKey(
             .p = 1,
         },
         .argon2id,
+        io,
     );
 
     return key;
@@ -101,10 +103,11 @@ pub fn zeroAndMunlock(key: []const u8) void {
 
 test "derive key" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
-    const derived_key: [Config.KEY_LEN]u8 = try deriveKey(allocator, "blue-penguin", "orange-tiger");
+    const derived_key: [Config.KEY_LEN]u8 = try deriveKey(allocator, io, "blue-penguin", "orange-tiger");
     defer zeroAndMunlock(&derived_key);
 
     try expect(derived_key.len == Config.KEY_LEN);
@@ -120,8 +123,11 @@ test "derive key" {
     const entry = try allocator.create(Vault.Entry);
     defer allocator.destroy(entry);
 
-    std.crypto.random.bytes(&entry.nonce_name);
-    std.crypto.random.bytes(&entry.nonce_data);
+    const rng_impl: std.Random.IoSource = .{ .io = io };
+    const rng = rng_impl.interface();
+
+    rng.bytes(&entry.nonce_name);
+    rng.bytes(&entry.nonce_data);
 
     const name = "plain text";
     entry.ciphertext_name = try allocator.alloc(u8, name.len);
