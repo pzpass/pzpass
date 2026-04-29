@@ -4,6 +4,10 @@
 
 It prioritizes simplicity, control, and auditability over feature bloat.
 
+## Requirements
+
+- zig version 0.16.0 or above
+
 ---
 
 ## Features
