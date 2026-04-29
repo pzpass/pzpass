@@ -14,7 +14,7 @@ const Allocator = std.mem.Allocator;
 
 const posix = std.posix;
 var keep_running = std.atomic.Value(bool).init(true);
-fn sigIntHandler(sig: i32) callconv(.c) void {
+fn sigIntHandler(sig: posix.SIG) callconv(.c) void {
     _ = sig;
     keep_running.store(false, .monotonic);
 }
@@ -33,12 +33,14 @@ pub fn run(
         .out = out,
         .in = in,
     };
-    // var act = posix.Sigaction{
-    //     .handler = .{ .handler = sigIntHandler },
-    //     .mask = posix.sigemptyset(),
-    //     .flags = 0,
-    // };
-    // posix.sigaction(posix.SIG.INT, &act, null);
+    var act: posix.Sigaction = .{
+        .handler = .{
+            .handler = sigIntHandler,
+        },
+        .mask = posix.sigemptyset(),
+        .flags = 0,
+    };
+    posix.sigaction(posix.SIG.INT, &act, null);
 
     var vault_changed = false;
     try out.writeAll("\x1b[?1049h");
