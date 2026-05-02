@@ -62,6 +62,9 @@ pub fn readFileAlloc(
     defer file.close(io);
 
     const file_metadata = try file.stat(io);
+    if (file_metadata.size == 0) {
+        return error.EmptyVault;
+    }
 
     const data_from_file = try allocator.alloc(u8, 1 << 20);
     if (file_metadata.size == 0) {
@@ -112,7 +115,8 @@ pub fn writeFile(
     const tmp_name = try std.fmt.allocPrint(allocator, "{s}.tmp", .{file_name});
     defer allocator.free(tmp_name);
 
-    const tmp_file = try sub_dir.createFile(io, tmp_name, .{ .truncate = true });
+    const perms: std.Io.File.Permissions = @enumFromInt(0o600);
+    const tmp_file = try sub_dir.createFile(io, tmp_name, .{ .truncate = true, .permissions = perms });
     defer tmp_file.close(io);
 
     var buff: [8092]u8 = undefined;
