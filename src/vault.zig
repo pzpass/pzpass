@@ -25,9 +25,9 @@ pub const Vault = struct {
     pub const Header = struct {
         magic: [MAGIC.len]u8,
         version: usize,
-        iterations: usize,
+        iterations: u32,
         mem_cost: u32,
-        parallelism: usize,
+        parallelism: u24,
         salt: [Config.SALT_LEN]u8,
         kek_ciphertext: [Config.KEY_LEN]u8,
         kek_nonce: [Config.NONCE_LEN]u8,
@@ -90,8 +90,16 @@ pub const Vault = struct {
 
         self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch try self.new(allocator, io, password);
 
-        const password_key = try pzcrypt.deriveKey(allocator, io, password, &self.header.salt);
-        try pzcrypt.mlockSlice(@constCast(&password_key));
+        var password_key = try pzcrypt.deriveKey(
+            allocator,
+            io,
+            password,
+            &self.header.salt,
+            self.header.iterations,
+            self.header.mem_cost,
+            self.header.parallelism,
+        );
+        try pzcrypt.mlockSlice(&password_key);
         defer pzcrypt.zeroAndMunlock(&password_key);
 
         try pzcrypt.mlockSlice(&self.vault_key);
@@ -141,8 +149,16 @@ pub const Vault = struct {
         rng.bytes(&self.header.salt);
         rng.bytes(&self.header.kek_nonce);
 
-        const password_key = try pzcrypt.deriveKey(allocator, io, password, &self.header.salt);
-        try pzcrypt.mlockSlice(@constCast(&password_key));
+        var password_key = try pzcrypt.deriveKey(
+            allocator,
+            io,
+            password,
+            &self.header.salt,
+            self.header.iterations,
+            self.header.mem_cost,
+            self.header.parallelism,
+        );
+        try pzcrypt.mlockSlice(&password_key);
         defer pzcrypt.zeroAndMunlock(&password_key);
 
         aead.encrypt(
@@ -202,6 +218,10 @@ pub const Vault = struct {
     pub fn info(self: *Vault, out: *Writer) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
         try out.print("Entries count: {d}\n", .{self.entries.items.len});
+        try out.print("Argon: mem_cost {d}, iterations {d}\n", .{
+            self.header.mem_cost,
+            self.header.iterations,
+        });
         try out.print("Vault stored as:\n{s}\n", .{self.file_path});
         try out.flush();
     }
@@ -306,7 +326,11 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        defer allocator.free(name);
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
 
         const data: []u8 = getInput(
             allocator,
@@ -317,15 +341,16 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        defer allocator.free(data);
+        try pzcrypt.mlockSlice(data);
+        defer {
+            pzcrypt.zeroAndMunlock(data);
+            allocator.free(data);
+        }
 
         try self.addEntry(allocator, io, name, data);
 
         try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
         try out.flush();
-
-        std.crypto.secureZero(u8, @constCast(name));
-        std.crypto.secureZero(u8, @constCast(data));
 
         return true;
     }
@@ -347,7 +372,11 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        defer allocator.free(name);
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
 
         const option: []u8 = getInput(
             allocator,
@@ -379,7 +408,11 @@ pub const Vault = struct {
             try dice.generateDicePhrase(allocator, io, length)
         else
             try pass.generate(allocator, io, length);
-        defer allocator.free(data);
+        try pzcrypt.mlockSlice(data);
+        defer {
+            pzcrypt.zeroAndMunlock(data);
+            allocator.free(data);
+        }
 
         try self.addEntry(allocator, io, name, data);
 
@@ -650,7 +683,15 @@ pub const Vault = struct {
         io: std.Io,
         password: []const u8,
     ) !void {
-        const password_key = try pzcrypt.deriveKey(allocator, io, password, &self.header.salt);
+        const password_key = try pzcrypt.deriveKey(
+            allocator,
+            io,
+            password,
+            &self.header.salt,
+            Config.ITERATIONS,
+            Config.MEM_COST,
+            Config.PARALLELISM,
+        );
         try pzcrypt.mlockSlice(@constCast(&password_key));
         defer pzcrypt.zeroAndMunlock(&password_key);
 
@@ -662,6 +703,9 @@ pub const Vault = struct {
             self.header.kek_nonce,
             password_key,
         );
+        self.header.mem_cost = Config.MEM_COST;
+        self.header.iterations = Config.ITERATIONS;
+        self.header.parallelism = Config.PARALLELISM;
     }
 
     pub fn updatePasswordPrompt(

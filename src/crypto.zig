@@ -14,6 +14,9 @@ pub fn deriveKey(
     io: std.Io,
     password: []const u8,
     salt: []const u8,
+    iterations: u32,
+    mem_cost: u32,
+    parallelism: u24,
 ) ![Config.KEY_LEN]u8 {
     var key: [Config.KEY_LEN]u8 = undefined;
     try mlockSlice(&key);
@@ -24,9 +27,9 @@ pub fn deriveKey(
         password,
         salt,
         .{
-            .t = 3,
-            .m = 65536,
-            .p = 1,
+            .t = iterations,
+            .m = mem_cost,
+            .p = parallelism,
         },
         .argon2id,
         io,
@@ -107,18 +110,22 @@ test "derive key" {
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
-    const derived_key: [Config.KEY_LEN]u8 = try deriveKey(allocator, io, "blue-penguin", "orange-tiger");
+    const derived_key: [Config.KEY_LEN]u8 = try deriveKey(
+        allocator,
+        io,
+        "blue-penguin",
+        "orange-tiger",
+        Config.ITERATIONS,
+        Config.MEM_COST,
+        Config.PARALLELISM,
+    );
     defer zeroAndMunlock(&derived_key);
 
     try expect(derived_key.len == Config.KEY_LEN);
 
-    const expected_hex = "a244cb38a5b637d6bb111abb9cccebfffb015572f1314ca445ad51f08c82bc0c";
-
-    var expected_bytes: [Config.KEY_LEN]u8 = undefined;
-
-    const result = try std.fmt.hexToBytes(&expected_bytes, expected_hex);
-    try expectEqualSlices(u8, &expected_bytes, &derived_key);
-    try expect(result.len == Config.KEY_LEN);
+    const expected_hex_string = "f04524de367275272bc296fe7aa7ac2b9aaecff4da5fb8b3c20a292134dca379";
+    const derived_key_string = std.fmt.bytesToHex(&derived_key, .lower);
+    try expectEqualSlices(u8, &derived_key_string, expected_hex_string);
 
     const entry = try allocator.create(Vault.Entry);
     defer allocator.destroy(entry);

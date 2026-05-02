@@ -46,7 +46,6 @@ pub fn readFileAlloc(
         base_dir_name,
         .{ .access_sub_paths = true },
     ) catch |err| {
-        std.debug.panic("Base directory {s} does not exist: {}", .{ base_dir_name, err });
         return err;
     };
     defer base_dir.close(io);
