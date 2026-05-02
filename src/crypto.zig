@@ -96,8 +96,8 @@ pub fn mlockSlice(key: []u8) !void {
     }
 }
 
-pub fn zeroAndMunlock(key: []const u8) void {
-    std.crypto.secureZero(u8, @constCast(key[0..]));
+pub fn zeroAndMunlock(key: []u8) void {
+    std.crypto.secureZero(u8, key[0..]);
     const munlock_status = std.os.linux.munlock(key.ptr, key.len);
     if (munlock_status != 0) {
         std.debug.print("Cannot munlock, status: {d}", .{munlock_status});
@@ -110,7 +110,7 @@ test "derive key" {
     const expect = std.testing.expect;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
-    const derived_key: [Config.KEY_LEN]u8 = try deriveKey(
+    var derived_key: [Config.KEY_LEN]u8 = try deriveKey(
         allocator,
         io,
         "blue-penguin",

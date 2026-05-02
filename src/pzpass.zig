@@ -11,9 +11,11 @@ pub fn run(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
 
     const stdout_buff: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
-    defer allocator.free(stdout_buff);
-    try pzcrypt.mlockSlice(@constCast(stdout_buff));
-    defer pzcrypt.zeroAndMunlock(stdout_buff);
+    try pzcrypt.mlockSlice(stdout_buff);
+    defer {
+        pzcrypt.zeroAndMunlock(stdout_buff);
+        allocator.free(stdout_buff);
+    }
 
     var stdout_file = std.Io.File.stdout().writer(init.io, stdout_buff);
     const stdout = &stdout_file.interface;
@@ -23,8 +25,11 @@ pub fn run(init: std.process.Init) !void {
 
     var stdin_reader = std.Io.File.stdin().reader(init.io, stdin_buff);
     const stdin = &stdin_reader.interface;
-    try pzcrypt.mlockSlice(@constCast(stdin_buff));
-    defer pzcrypt.zeroAndMunlock(stdin_buff);
+    try pzcrypt.mlockSlice(stdin_buff);
+    defer {
+        pzcrypt.zeroAndMunlock(stdin_buff);
+        allocator.free(stdin_buff);
+    }
 
     const prompt_options: Vault.Options = .{
         .out = stdout,

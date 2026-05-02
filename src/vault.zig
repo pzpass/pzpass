@@ -419,9 +419,6 @@ pub const Vault = struct {
         try out.writeAll("\x1b[33mEntry added successfully.\x1b[0m\n");
         try out.flush();
 
-        std.crypto.secureZero(u8, @constCast(name));
-        std.crypto.secureZero(u8, @constCast(data));
-
         return true;
     }
 
@@ -441,11 +438,13 @@ pub const Vault = struct {
             error.EmptyString => return,
             else => return err,
         };
-        defer allocator.free(name);
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
 
         try self.listEntries(allocator, out, name);
-
-        std.crypto.secureZero(u8, @constCast(name));
     }
 
     pub fn openEntryPrompt(
@@ -560,9 +559,6 @@ pub const Vault = struct {
         _ = self.entries.swapRemove(index);
         try out.writeAll("\x1b[33mEntry updated successfully.\x1b[0m\n");
         try out.flush();
-
-        std.crypto.secureZero(u8, @constCast(name));
-        std.crypto.secureZero(u8, @constCast(data));
 
         return true;
     }
@@ -683,7 +679,7 @@ pub const Vault = struct {
         io: std.Io,
         password: []const u8,
     ) !void {
-        const password_key = try pzcrypt.deriveKey(
+        var password_key = try pzcrypt.deriveKey(
             allocator,
             io,
             password,
@@ -692,7 +688,7 @@ pub const Vault = struct {
             Config.MEM_COST,
             Config.PARALLELISM,
         );
-        try pzcrypt.mlockSlice(@constCast(&password_key));
+        try pzcrypt.mlockSlice(&password_key);
         defer pzcrypt.zeroAndMunlock(&password_key);
 
         aead.encrypt(
@@ -725,7 +721,11 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        defer allocator.free(password);
+        try pzcrypt.mlockSlice(password);
+        defer {
+            pzcrypt.zeroAndMunlock(password);
+            allocator.free(password);
+        }
 
         try out.writeAll("\n");
         try out.flush();
@@ -739,7 +739,11 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        defer allocator.free(password_confirmation);
+        try pzcrypt.mlockSlice(password_confirmation);
+        defer {
+            pzcrypt.zeroAndMunlock(password_confirmation);
+            allocator.free(password_confirmation);
+        }
 
         try out.writeAll("\n");
         try out.flush();
@@ -751,9 +755,6 @@ pub const Vault = struct {
 
         try out.writeAll("\x1b[33mPassword successfully updated.\x1b[0m\n");
         try out.flush();
-
-        std.crypto.secureZero(u8, @constCast(password));
-        std.crypto.secureZero(u8, @constCast(password_confirmation));
 
         return true;
     }
