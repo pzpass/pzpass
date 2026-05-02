@@ -50,9 +50,6 @@ pub fn run(
     var original_termios: posix.termios = undefined;
     defer termios.reset_terminal(&original_termios);
 
-    var vault = try allocator.create(Vault);
-    defer vault.deinit(allocator);
-
     try out.writeAll("\x1b[33mPassword:\x1b[0m ");
     try out.flush();
 
@@ -63,6 +60,9 @@ pub fn run(
     try termios.set_terminal(&original_termios);
 
     try out.writeAll("\n");
+
+    var vault = try allocator.create(Vault);
+    errdefer allocator.destroy(vault);
 
     if (user_password) |password| {
         try pzcrypt.mlockSlice(password);
@@ -81,6 +81,7 @@ pub fn run(
     } else {
         try out.writeAll("Null password is not valid.");
     }
+    defer vault.deinit(allocator);
 
     while (keep_running.load(.monotonic)) {
         try flushInput(out, in);

@@ -99,14 +99,11 @@ pub fn writeFile(
     };
     defer base_dir.close(io);
 
-    const sub_dir = base_dir.openDir(
+    const sub_dir = try base_dir.openDir(
         io,
         sub_dir_name,
         .{ .access_sub_paths = true },
-    ) catch |err| {
-        std.debug.panic("Sub directory {s} does not exist: {}", .{ base_dir_name, err });
-        return err;
-    };
+    );
     defer sub_dir.close(io);
 
     const bak_name = try std.fmt.allocPrint(allocator, "{s}.bak", .{file_name});
