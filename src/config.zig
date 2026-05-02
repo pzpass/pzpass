@@ -7,8 +7,8 @@ pub const Config = packed struct {
     pub const KEY_LEN = 32;
     pub const TAG_LEN = 16;
 
-    pub const MEM_COST = 1 << 16;
-    pub const ITERATIONS = 3;
+    pub const MEM_COST = 1 << 18;
+    pub const ITERATIONS = 5;
     pub const PARALLELISM = 1;
 
     pub const ENTRY_LEN = 4096;
