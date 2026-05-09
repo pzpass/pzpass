@@ -1,0 +1,26 @@
+name: Release MacOS
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Zig
+        run: |
+          curl -sL "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz" | tar -xJ
+          echo "$PWD/zig-aarch64-macos-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Build Zig Binary
+        run: zig build --release=small
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pzp
+          path: zig-out/bin/
