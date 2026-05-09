@@ -1,4 +1,4 @@
-name: Release
+name: Release ARM64
 
 on:
   release:
@@ -14,8 +14,8 @@ jobs:
 
       - name: Install Zig
         run: |
-          curl -sL "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz" | tar -xJ
-          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+          curl -sL "https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz" | tar -xJ
+          echo "$PWD/zig-aarch64-linux-0.16.0" >> "$GITHUB_PATH"
 
       - name: Build Zig Binary
         run: zig build --release=small
