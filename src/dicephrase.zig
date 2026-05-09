@@ -17,9 +17,10 @@ pub fn runPassphraseGenerator(
     else
         5;
     while (true) {
-        var original_termios: std.os.linux.termios = undefined;
-        try termios.set_terminal(&original_termios);
-        defer termios.reset_terminal(&original_termios);
+        const original_termios = try std.posix.tcgetattr(std.posix.STDOUT_FILENO);
+        defer termios.reset_terminal(original_termios);
+
+        try termios.set_terminal(original_termios);
 
         const dicephrase = try generateDicePhrase(allocator, io, word_count);
         defer {

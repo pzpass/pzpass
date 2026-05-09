@@ -1,47 +1,24 @@
 const std = @import("std");
 
-pub fn set_terminal(original_termios: *std.os.linux.termios) !void {
-    if (std.os.linux.tcgetattr(std.Io.File.stdout().handle, original_termios) != 0) {
-        std.debug.print("Cannot save original terminal settings.\n", .{});
-        return error.TerminalNotSet;
-    }
-    var raw = original_termios.*;
+pub fn set_terminal(original_termios: std.posix.termios) !void {
+    var raw = original_termios;
     raw.lflag.ICANON = false;
     raw.lflag.ECHO = false;
-    if (std.os.linux.tcsetattr(std.Io.File.stdout().handle, .NOW, &raw) != 0) {
-        std.debug.print("Cannot set terminal no echo settings.\n", .{});
-        return error.TerminalNotSet;
-    }
+    try std.posix.tcsetattr(std.Io.File.stdout().handle, .NOW, raw);
 }
 
-pub fn set_terminal_pasword(original_termios: *std.os.linux.termios) !void {
-    if (std.os.linux.tcgetattr(std.Io.File.stdout().handle, original_termios) != 0) {
-        std.debug.print("Cannot save original terminal settings.\n", .{});
-        return error.TerminalNotSet;
-    }
-    var raw = original_termios.*;
+pub fn set_terminal_pasword(original_termios: std.posix.termios) !void {
+    var raw = original_termios;
     raw.lflag.ECHO = false;
-    if (std.os.linux.tcsetattr(std.Io.File.stdout().handle, .NOW, &raw) != 0) {
-        std.debug.print("Cannot set terminal no echo settings.\n", .{});
-        return error.TerminalNotSet;
-    }
+    try std.posix.tcsetattr(std.Io.File.stdout().handle, .NOW, raw);
 }
 
-pub fn set_terminal_confirm(original_termios: *std.os.linux.termios) !void {
-    if (std.os.linux.tcgetattr(std.Io.File.stdout().handle, original_termios) != 0) {
-        std.debug.print("Cannot save original terminal settings.\n", .{});
-        return error.TerminalNotSet;
-    }
-    var raw = original_termios.*;
+pub fn set_terminal_confirm(original_termios: std.posix.termios) !void {
+    var raw = original_termios;
     raw.lflag.ICANON = false;
-    if (std.os.linux.tcsetattr(std.Io.File.stdout().handle, .NOW, &raw) != 0) {
-        std.debug.print("Cannot set terminal no echo settings.\n", .{});
-        return error.TerminalNotSet;
-    }
+    try std.posix.tcsetattr(std.Io.File.stdout().handle, .NOW, raw);
 }
 
-pub fn reset_terminal(original_termios: *std.os.linux.termios) void {
-    if (std.os.linux.tcsetattr(std.Io.File.stdout().handle, .NOW, original_termios) != 0) {
-        std.debug.print("Cannot reset terminal to original settings.\n", .{});
-    }
+pub fn reset_terminal(original_termios: std.posix.termios) void {
+    std.posix.tcsetattr(std.Io.File.stdout().handle, .NOW, original_termios) catch unreachable;
 }
