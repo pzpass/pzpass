@@ -2,6 +2,7 @@ const std = @import("std");
 const Vault = @import("vault.zig").Vault;
 const Config = @import("config.zig").Config;
 const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
+const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
 
@@ -89,18 +90,22 @@ pub fn decrypt(
 }
 
 pub fn mlockSlice(key: []u8) !void {
-    const locked_key_status = std.os.linux.mlock2(key.ptr, key.len, .{});
-    if (locked_key_status != 0) {
-        std.debug.print("Cannot mlock key: size {d}\n", .{locked_key_status});
-        return error.NotMlocked;
+    if (builtin.os.tag == .linux) {
+        const locked_key_status = std.os.linux.mlock2(key.ptr, key.len, .{});
+        if (locked_key_status != 0) {
+            std.debug.print("Cannot mlock key: size {d}\n", .{locked_key_status});
+            return error.NotMlocked;
+        }
     }
 }
 
 pub fn zeroAndMunlock(key: []u8) void {
     std.crypto.secureZero(u8, key[0..]);
-    const munlock_status = std.os.linux.munlock(key.ptr, key.len);
-    if (munlock_status != 0) {
-        std.debug.print("Cannot munlock, status: {d}", .{munlock_status});
+    if (builtin.os.tag == .linux) {
+        const munlock_status = std.os.linux.munlock(key.ptr, key.len);
+        if (munlock_status != 0) {
+            std.debug.print("Cannot munlock, status: {d}", .{munlock_status});
+        }
     }
 }
 
