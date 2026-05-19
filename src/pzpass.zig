@@ -6,11 +6,12 @@ const interactive = @import("interactive.zig");
 const pzcrypt = @import("crypto.zig");
 
 const passwordgen = @import("passwordgen.zig");
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 pub fn run(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
 
-    const stdout_buff: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
+    const stdout_buff = try allocator.alignedAlloc(u8, alignment, Vault.ENTRY_LEN);
     try pzcrypt.mlockSlice(stdout_buff);
     defer {
         pzcrypt.zeroAndMunlock(stdout_buff);
@@ -20,7 +21,7 @@ pub fn run(init: std.process.Init) !void {
     var stdout_file = std.Io.File.stdout().writer(init.io, stdout_buff);
     const stdout = &stdout_file.interface;
 
-    const stdin_buff: []u8 = try allocator.alloc(u8, Vault.ENTRY_LEN);
+    const stdin_buff = try allocator.alignedAlloc(u8, alignment, Vault.ENTRY_LEN);
     defer allocator.free(stdin_buff);
 
     var stdin_reader = std.Io.File.stdin().reader(init.io, stdin_buff);

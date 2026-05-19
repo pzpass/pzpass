@@ -55,6 +55,7 @@ pub fn run(
 
     try termios.set_terminal_pasword(original_termios);
     const user_password = try takeDelimiter(out, in, '\n');
+
     try flushInput(out, in);
     termios.reset_terminal(original_termios);
     try termios.set_terminal(original_termios);
@@ -65,8 +66,7 @@ pub fn run(
     errdefer allocator.destroy(vault);
 
     if (user_password) |password| {
-        try pzcrypt.mlockSlice(password);
-        defer pzcrypt.zeroAndMunlock(password);
+        defer std.crypto.secureZero(u8, password);
 
         vault = try Vault.init(
             allocator,
@@ -76,8 +76,6 @@ pub fn run(
             sub_dir_name,
             file_name,
         );
-
-        std.crypto.secureZero(u8, password);
     } else {
         try out.writeAll("Null password is not valid.");
     }

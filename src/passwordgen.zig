@@ -1,6 +1,7 @@
 const std = @import("std");
 const pzcrypt = @import("crypto.zig");
 
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 const charset =
     "abcdefghijklmnopqrstuvwxyz" ++
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ" ++
@@ -29,7 +30,7 @@ pub fn generate(
     io: std.Io,
     len: usize,
 ) ![]u8 {
-    const out = try allocator.alloc(u8, len);
+    const out = try allocator.alignedAlloc(u8, alignment, len);
     try pzcrypt.mlockSlice(out);
 
     const rng_impl: std.Random.IoSource = .{ .io = io };
@@ -52,7 +53,7 @@ test "password length" {
     const io = std.testing.io;
 
     const pw = try generate(allocator, io, 16);
-    defer allocator.free(pw);
+    defer allocator.rawFree(pw, alignment, std.heap.page_size_min);
 
     try std.testing.expect(pw.len == 16);
 }

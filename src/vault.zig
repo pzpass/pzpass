@@ -10,6 +10,7 @@ const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 const pass = @import("passwordgen.zig");
 const dice = @import("dicephrase.zig");
@@ -240,14 +241,14 @@ pub const Vault = struct {
     ) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
         for (self.entries.items, 0..) |item, index| {
-            const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+            const name = try allocator.alignedAlloc(u8, alignment, item.ciphertext_name.len);
             try pzcrypt.mlockSlice(name);
             defer {
                 pzcrypt.zeroAndMunlock(name);
                 allocator.free(name);
             }
 
-            const data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
+            const data = try allocator.alignedAlloc(u8, alignment, item.ciphertext_data.len);
             try pzcrypt.mlockSlice(data);
             defer {
                 pzcrypt.zeroAndMunlock(data);
