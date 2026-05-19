@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
+
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 
@@ -171,20 +173,20 @@ test "serialize deserialize" {
 
     for (0..3) |_| {
         const name = try dice.generateDicePhrase(allocator, io, 20);
-        defer allocator.free(name);
+        defer allocator.rawFree(name, alignment, std.heap.page_size_min);
 
         const data = try dice.generateDicePhrase(allocator, io, 50);
-        defer allocator.free(data);
+        defer allocator.rawFree(data, alignment, std.heap.page_size_min);
 
         try vault.addEntry(allocator, io, name, data);
     }
 
     for (0..3) |_| {
         const name = try pass.generate(allocator, io, Vault.ENTRY_LEN);
-        defer allocator.free(name);
+        defer allocator.rawFree(name, alignment, std.heap.page_size_min);
 
         const data = try pass.generate(allocator, io, Vault.ENTRY_LEN);
-        defer allocator.free(data);
+        defer allocator.rawFree(data, alignment, std.heap.page_size_min);
 
         try vault.addEntry(allocator, io, name, data);
     }
@@ -218,7 +220,7 @@ test "serialize deserialize" {
     try storage.writeFile(allocator, io, home, sub_dir_name, file_name, vault_serialized);
 
     const data_from_file = try storage.readFileAlloc(allocator, io, home, sub_dir_name, file_name);
-    defer allocator.free(data_from_file);
+    defer allocator.rawFree(data_from_file, alignment, std.heap.page_size_min);
 
     const vault_from_file = try allocator.create(Vault);
     defer vault_from_file.deinit(allocator);

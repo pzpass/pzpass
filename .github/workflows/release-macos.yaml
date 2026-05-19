@@ -18,7 +18,8 @@ jobs:
           echo "$PWD/zig-aarch64-macos-0.16.0" >> "$GITHUB_PATH"
 
       - name: Build Zig Binary
-        run: zig build --release=small
+        run: |
+          zig build --release=small
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7

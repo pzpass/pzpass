@@ -4,6 +4,7 @@ const termios = @import("termios.zig");
 const words = @import("dicelist.zig").dice_words;
 
 const Allocator = std.mem.Allocator;
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 pub fn runPassphraseGenerator(
     allocator: Allocator,
@@ -24,8 +25,8 @@ pub fn runPassphraseGenerator(
 
         const dicephrase = try generateDicePhrase(allocator, io, word_count);
         defer {
-            pzcrypt.zeroAndMunlock(dicephrase);
-            allocator.free(dicephrase);
+            std.crypto.secureZero(u8, dicephrase);
+            allocator.rawFree(dicephrase, alignment, std.heap.page_size_min);
         }
         try out.print("{s}\n", .{dicephrase});
         try out.flush();
@@ -63,8 +64,15 @@ pub fn generateDicePhrase(
     }
 
     const passphrase = try std.mem.join(allocator, "-", selected.items);
-    try pzcrypt.mlockSlice(passphrase);
-    return passphrase;
+    defer {
+        std.crypto.secureZero(u8, passphrase);
+        allocator.free(passphrase);
+    }
+
+    const result = try allocator.alignedAlloc(u8, alignment, passphrase.len);
+    @memcpy(result, passphrase);
+
+    return result;
 }
 
 test "generated prase word count" {
@@ -72,7 +80,7 @@ test "generated prase word count" {
     const io = std.testing.io;
 
     const dicephrase = try generateDicePhrase(allocator, io, 5);
-    defer allocator.free(dicephrase);
+    defer allocator.rawFree(dicephrase, alignment, std.heap.page_size_min);
 
     try std.testing.expect(dicephrase.len > 0);
 }

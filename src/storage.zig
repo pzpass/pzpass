@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 pub const VaultPath = struct {
     vault_dir: []const u8,
@@ -66,7 +67,7 @@ pub fn readFileAlloc(
         return error.EmptyVault;
     }
 
-    const data_from_file = try allocator.alloc(u8, 1 << 20);
+    const data_from_file = try allocator.alignedAlloc(u8, alignment, 1 << 20);
     if (file_metadata.size == 0) {
         std.debug.print("{s}/{s}/{s} is empty\n", .{ base_dir_name, sub_dir_name, file_name });
         return data_from_file;
