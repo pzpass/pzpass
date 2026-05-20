@@ -61,9 +61,9 @@ pub fn run(init: std.process.Init) !void {
 
     const cmd = args[1];
 
-    if (std.mem.startsWith(u8, "dice", cmd)) {
+    if (std.mem.startsWith(u8, "dicephrase", cmd)) {
         try dice.runPassphraseGenerator(allocator, init.io, stdout, stdin, args);
-    } else if (std.mem.startsWith(u8, "pass", cmd)) {
+    } else if (std.mem.startsWith(u8, "password", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, init.io, stdout, args);
     } else if (args.len > 2 and std.mem.eql(u8, "-f", cmd)) {
         const file_name = if (args[2].len > 0) args[2] else return error.NoFileNameGiven;
