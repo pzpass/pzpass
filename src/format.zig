@@ -59,12 +59,12 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
     var magic: [MAGIC.len]u8 = undefined;
     try r.readSliceAll(&magic);
     if (!std.mem.eql(u8, &magic, &MAGIC)) {
-        std.debug.panic("Not pzpass vault file.\n", .{});
+        return error.InvalidMagic;
     }
 
     const version = try r.takeInt(usize, .little);
     if (version != Config.VERSION) {
-        std.debug.panic("Wrong version of pzpazz vault file.\n", .{});
+        return error.InvalidVersion;
     }
 
     var salt: [Config.SALT_LEN]u8 = undefined;
@@ -102,9 +102,15 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
     };
     vault.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
+    const max_entry_size = 1 << 24;
+
     for (0..entry_count) |_| {
         const name_len = try r.takeInt(usize, .little);
         const data_len = try r.takeInt(usize, .little);
+
+        if (name_len > max_entry_size or data_len > max_entry_size) {
+            return error.EntryTooLarge;
+        }
 
         var nonce_name: [Config.NONCE_LEN]u8 = undefined;
         try r.readSliceAll(&nonce_name);

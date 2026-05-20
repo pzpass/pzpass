@@ -53,7 +53,7 @@ pub fn run(
     try out.writeAll("\x1b[33mPassword:\x1b[0m ");
     try out.flush();
 
-    try termios.set_terminal_pasword(original_termios);
+    try termios.set_terminal_password(original_termios);
     const user_password = try takeDelimiter(out, in, '\n');
 
     try flushInput(out, in);
@@ -62,22 +62,17 @@ pub fn run(
 
     try out.writeAll("\n");
 
-    var vault: *Vault = undefined;
+    const password = user_password orelse return error.NullPassword;
+    defer std.crypto.secureZero(u8, password);
 
-    if (user_password) |password| {
-        defer std.crypto.secureZero(u8, password);
-
-        vault = try Vault.init(
-            allocator,
-            io,
-            password,
-            base_dir_name,
-            sub_dir_name,
-            file_name,
-        );
-    } else {
-        try out.writeAll("Null password is not valid.");
-    }
+    var vault = try Vault.init(
+        allocator,
+        io,
+        password,
+        base_dir_name,
+        sub_dir_name,
+        file_name,
+    );
     defer vault.deinit(allocator);
 
     while (keep_running.load(.monotonic)) {
@@ -136,7 +131,7 @@ pub fn run(
             },
             'u' => {
                 termios.reset_terminal(original_termios);
-                try termios.set_terminal_pasword(original_termios);
+                try termios.set_terminal_password(original_termios);
 
                 vault_changed = try vault.updatePasswordPrompt(allocator, io, prompt_options) or vault_changed;
 

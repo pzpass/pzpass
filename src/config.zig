@@ -9,7 +9,7 @@ pub const Config = packed struct {
 
     pub const MEM_COST: u32 = 1 << 18;
     pub const ITERATIONS: u32 = 5;
-    pub const PARALLELISM: u24 = 1;
+    pub const PARALLELISM: u32 = 1;
 
     pub const ENTRY_LEN = 4096;
 };

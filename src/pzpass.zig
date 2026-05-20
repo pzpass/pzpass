@@ -22,7 +22,6 @@ pub fn run(init: std.process.Init) !void {
     const stdout = &stdout_file.interface;
 
     const stdin_buff = try allocator.alignedAlloc(u8, alignment, Vault.ENTRY_LEN);
-    defer allocator.free(stdin_buff);
 
     var stdin_reader = std.Io.File.stdin().reader(init.io, stdin_buff);
     const stdin = &stdin_reader.interface;
@@ -37,44 +36,38 @@ pub fn run(init: std.process.Init) !void {
         .in = stdin,
     };
 
-    const home_dir = init.minimal.environ.getPosix("HOME") orelse undefined;
-    const username = init.minimal.environ.getPosix("USER") orelse undefined;
+    const home_dir = init.minimal.environ.getPosix("HOME") orelse return error.MissingHomeEnv;
+    const username = init.minimal.environ.getPosix("USER") orelse return error.MissingUserEnv;
     const args = try init.minimal.args.toSlice(allocator);
+    defer allocator.free(args);
+
     if (args.len < 2) {
         const vault_path = try std.fmt.allocPrint(
             allocator,
             "{s}.vault.dat",
             .{username},
         );
-        interactive.run(
+        defer allocator.free(vault_path);
+        try interactive.run(
             allocator,
             init.io,
             prompt_options,
             home_dir,
             ".pzpass",
             vault_path,
-        ) catch |err| {
-            try stdout.writeAll("\x1b[?1049l");
-            try stdout.flush();
-            return err;
-        };
+        );
         return;
     }
-    defer allocator.free(args);
 
     const cmd = args[1];
 
-    if (std.mem.startsWith(u8, "dicephrase", cmd)) {
+    if (std.mem.startsWith(u8, "dice", cmd)) {
         try dice.runPassphraseGenerator(allocator, init.io, stdout, stdin, args);
-    } else if (std.mem.startsWith(u8, "password", cmd)) {
+    } else if (std.mem.startsWith(u8, "pass", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, init.io, stdout, args);
-    } else if (std.mem.eql(u8, "-f", cmd)) {
+    } else if (args.len > 2 and std.mem.eql(u8, "-f", cmd)) {
         const file_name = if (args[2].len > 0) args[2] else return error.NoFileNameGiven;
-        interactive.run(allocator, init.io, prompt_options, home_dir, ".pzpass", file_name) catch |err| {
-            try stdout.writeAll("\x1b[?1049l");
-            try stdout.flush();
-            return err;
-        };
+        try interactive.run(allocator, init.io, prompt_options, home_dir, ".pzpass", file_name);
         return;
     } else {
         try printUsage();

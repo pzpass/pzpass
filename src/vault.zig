@@ -28,7 +28,7 @@ pub const Vault = struct {
         version: usize,
         iterations: u32,
         mem_cost: u32,
-        parallelism: u24,
+        parallelism: u32,
         salt: [Config.SALT_LEN]u8,
         kek_ciphertext: [Config.KEY_LEN]u8,
         kek_nonce: [Config.NONCE_LEN]u8,
@@ -76,7 +76,10 @@ pub const Vault = struct {
         file_name: []const u8,
     ) !*Vault {
         var self = try allocator.create(Vault);
+        errdefer allocator.destroy(self);
+
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
+        errdefer self.entries.deinit(allocator);
 
         self.file_path = try std.fmt.allocPrint(
             allocator,
@@ -87,6 +90,7 @@ pub const Vault = struct {
                 file_name,
             },
         );
+        errdefer allocator.free(self.file_path);
 
         self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch try self.new(allocator, io, password);
 
@@ -180,7 +184,7 @@ pub const Vault = struct {
         file_name: []const u8,
     ) !void {
         const data_from_file = try storage.readFileAlloc(allocator, io, base_dir, sub_dir, file_name);
-        defer allocator.free(data_from_file);
+        defer allocator.rawFree(data_from_file, alignment, std.heap.page_size_min);
 
         try format.deserializeVault(allocator, self, data_from_file);
     }
@@ -546,6 +550,9 @@ pub const Vault = struct {
             };
             break :blk input;
         };
+        if (updated_name.ptr != decrypted_name.ptr) {
+            try pzcrypt.mlockSlice(updated_name);
+        }
 
         const updated_data = blk: {
             const input = getInput(
@@ -555,16 +562,13 @@ pub const Vault = struct {
                 "\x1b[33mNew entry data (leave empty to keep):\x1b[0m ",
             ) catch |err| switch (err) {
                 error.EmptyString => break :blk decrypted_data,
-                else => {
-                    if (updated_name.ptr != decrypted_name.ptr) {
-                        pzcrypt.zeroAndMunlock(updated_name);
-                        allocator.free(updated_name);
-                    }
-                    return err;
-                },
+                else => return err,
             };
             break :blk input;
         };
+        if (updated_data.ptr != decrypted_data.ptr) {
+            try pzcrypt.mlockSlice(updated_data);
+        }
 
         defer {
             if (updated_name.ptr != decrypted_name.ptr) {
@@ -631,22 +635,20 @@ pub const Vault = struct {
 
         const item = self.entries.items[index];
 
-        var name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
-        try pzcrypt.mlockSlice(name);
-        defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
-        }
-
-        name = getInput(
+        const name: []u8 = getInput(
             allocator,
             out,
             in,
             "\x1b[33mEntry name:\x1b[0m ",
         ) catch |err| switch (err) {
-            error.EmptyString => name,
+            error.EmptyString => return false,
             else => return err,
         };
+        try pzcrypt.mlockSlice(name);
+        defer {
+            pzcrypt.zeroAndMunlock(name);
+            allocator.free(name);
+        }
 
         const entry_name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
         try pzcrypt.mlockSlice(entry_name);
@@ -708,6 +710,11 @@ pub const Vault = struct {
         io: std.Io,
         password: []const u8,
     ) !void {
+        const rng_impl: std.Random.IoSource = .{ .io = io };
+        const rng = rng_impl.interface();
+        rng.bytes(&self.header.salt);
+        rng.bytes(&self.header.kek_nonce);
+
         var password_key = try pzcrypt.deriveKey(
             allocator,
             io,
@@ -846,7 +853,7 @@ fn getInputNumeric(
     const index_slice_option = try in.takeDelimiter('\n');
     const index_slice = index_slice_option orelse return error.WrongInput;
 
-    const index = std.fmt.parseInt(usize, index_slice, 10) catch error.WrongInput;
+    const index = std.fmt.parseInt(usize, index_slice, 10) catch return error.WrongInput;
 
     try out.writeAll("\n");
     try out.flush();

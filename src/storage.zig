@@ -86,7 +86,6 @@ pub fn writeFile(
         base_dir_name,
         .{ .access_sub_paths = true },
     ) catch |err| {
-        std.debug.panic("Base directory {s} does not exist: {}", .{ base_dir_name, err });
         return err;
     };
     defer base_dir.close(io);
@@ -115,7 +114,7 @@ pub fn writeFile(
     const writer = &file_writer.interface;
     const bytes_written = try writer.write(data);
     if (bytes_written != data.len) {
-        std.debug.print("bytes written {d} does not match data size {d}\n", .{ bytes_written, data.len });
+        return error.IncompleteWrite;
     }
     try writer.flush();
     try tmp_file.sync(io);

@@ -17,10 +17,11 @@ pub fn deriveKey(
     salt: []const u8,
     iterations: u32,
     mem_cost: u32,
-    parallelism: u24,
+    parallelism: u32,
 ) ![Config.KEY_LEN]u8 {
     var key: [Config.KEY_LEN]u8 = undefined;
     try mlockSlice(&key);
+    defer zeroAndMunlock(&key);
 
     try std.crypto.pwhash.argon2.kdf(
         allocator,
@@ -30,7 +31,7 @@ pub fn deriveKey(
         .{
             .t = iterations,
             .m = mem_cost,
-            .p = parallelism,
+            .p = @intCast(parallelism),
         },
         .argon2id,
         io,
