@@ -62,8 +62,7 @@ pub fn run(
 
     try out.writeAll("\n");
 
-    var vault = try allocator.create(Vault);
-    errdefer allocator.destroy(vault);
+    var vault: *Vault = undefined;
 
     if (user_password) |password| {
         defer std.crypto.secureZero(u8, password);
