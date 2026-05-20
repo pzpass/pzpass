@@ -161,7 +161,7 @@ test "serialize deserialize" {
     const sub_dir_name = ".pzpass";
     const file_name = "format.vault.dat";
 
-    const vault = try Vault.init(
+    var vault = try Vault.init(
         allocator,
         io,
         "blue-penguin",
@@ -197,6 +197,16 @@ test "serialize deserialize" {
     const vault_deserialized = try allocator.create(Vault);
     defer vault_deserialized.deinit(allocator);
 
+    vault_deserialized.file_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}/{s}/{s}",
+        .{
+            home,
+            sub_dir_name,
+            file_name,
+        },
+    );
+
     try deserializeVault(allocator, vault_deserialized, vault_serialized);
 
     try expectEqualSlices(u8, &vault_deserialized.header.magic, &MAGIC);
@@ -223,6 +233,17 @@ test "serialize deserialize" {
     defer allocator.rawFree(data_from_file, alignment, std.heap.page_size_min);
 
     const vault_from_file = try allocator.create(Vault);
+
+    vault_from_file.file_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}/{s}/{s}",
+        .{
+            home,
+            sub_dir_name,
+            file_name,
+        },
+    );
+
     defer vault_from_file.deinit(allocator);
 
     try deserializeVault(allocator, vault_from_file, data_from_file);

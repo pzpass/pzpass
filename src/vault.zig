@@ -78,9 +78,8 @@ pub const Vault = struct {
         var self = try allocator.create(Vault);
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
 
-        var buff: [256]u8 = undefined;
-        self.file_path = try std.fmt.bufPrint(
-            &buff,
+        self.file_path = try std.fmt.allocPrint(
+            allocator,
             "{s}/{s}/{s}",
             .{
                 base_dir,
@@ -187,6 +186,7 @@ pub const Vault = struct {
     }
 
     pub fn deinit(self: *Vault, allocator: Allocator) void {
+        allocator.free(self.file_path);
         pzcrypt.zeroAndMunlock(&self.vault_key);
         for (self.entries.items) |item| {
             allocator.free(item.ciphertext_name);
