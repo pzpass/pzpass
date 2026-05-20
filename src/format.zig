@@ -106,37 +106,31 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
         const name_len = try r.takeInt(usize, .little);
         const data_len = try r.takeInt(usize, .little);
 
-        const nonce_name = try allocator.alloc(u8, Config.NONCE_LEN);
-        defer allocator.free(nonce_name);
-        try r.readSliceAll(nonce_name);
+        var nonce_name: [Config.NONCE_LEN]u8 = undefined;
+        try r.readSliceAll(&nonce_name);
 
-        const nonce_data = try allocator.alloc(u8, Config.NONCE_LEN);
-        defer allocator.free(nonce_data);
-        try r.readSliceAll(nonce_data);
+        var nonce_data: [Config.NONCE_LEN]u8 = undefined;
+        try r.readSliceAll(&nonce_data);
 
         const ciphertext_name = try allocator.alloc(u8, name_len);
-        defer allocator.free(ciphertext_name);
         try r.readSliceAll(ciphertext_name);
 
         const ciphertext_data = try allocator.alloc(u8, data_len);
-        defer allocator.free(ciphertext_data);
         try r.readSliceAll(ciphertext_data);
 
-        const tag_name = try allocator.alloc(u8, Config.TAG_LEN);
-        defer allocator.free(tag_name);
-        try r.readSliceAll(tag_name);
+        var tag_name: [Config.TAG_LEN]u8 = undefined;
+        try r.readSliceAll(&tag_name);
 
-        const tag_data = try allocator.alloc(u8, Config.TAG_LEN);
-        defer allocator.free(tag_data);
-        try r.readSliceAll(tag_data);
+        var tag_data: [Config.TAG_LEN]u8 = undefined;
+        try r.readSliceAll(&tag_data);
 
         const entry: Vault.Entry = .{
-            .tag_name = tag_name[0..Config.TAG_LEN].*,
-            .tag_data = tag_data[0..Config.TAG_LEN].*,
-            .nonce_name = nonce_name[0..Config.NONCE_LEN].*,
-            .nonce_data = nonce_data[0..Config.NONCE_LEN].*,
-            .ciphertext_name = try allocator.dupe(u8, ciphertext_name),
-            .ciphertext_data = try allocator.dupe(u8, ciphertext_data),
+            .nonce_name = nonce_name,
+            .nonce_data = nonce_data,
+            .ciphertext_name = ciphertext_name,
+            .ciphertext_data = ciphertext_data,
+            .tag_name = tag_name,
+            .tag_data = tag_data,
         };
 
         try vault.entries.append(allocator, entry);

@@ -5,7 +5,8 @@ const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 const charset =
     "abcdefghijklmnopqrstuvwxyz" ++
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ" ++
-    "0123456789";
+    "0123456789" ++
+    "!@#$%^&*()-_=+[]{}|;:,.<>?";
 
 pub fn runPasswordGenerator(
     allocator: std.mem.Allocator,

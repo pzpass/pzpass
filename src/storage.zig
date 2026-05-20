@@ -67,21 +67,9 @@ pub fn readFileAlloc(
         return error.EmptyVault;
     }
 
-    const data_from_file = try allocator.alignedAlloc(u8, alignment, 1 << 20);
-    if (file_metadata.size == 0) {
-        std.debug.print("{s}/{s}/{s} is empty\n", .{ base_dir_name, sub_dir_name, file_name });
-        return data_from_file;
-    }
-    const file_ptr = try std.posix.mmap(
-        null,
-        file_metadata.size,
-        .{ .READ = true, .WRITE = false },
-        .{ .TYPE = .SHARED },
-        file.handle,
-        0,
-    );
-    defer std.posix.munmap(file_ptr);
-    std.mem.copyForwards(u8, data_from_file, file_ptr);
+    const data_from_file = try allocator.alignedAlloc(u8, alignment, file_metadata.size);
+    const bytes_read = try file.readPositionalAll(io, data_from_file, 0);
+    if (bytes_read != data_from_file.len) return error.UnexpectedEndOfFile;
     return data_from_file;
 }
 

@@ -160,7 +160,7 @@ pub fn run(
     }
 
     if (vault_changed) {
-        try out.writeAll("\x1b[33mSave vault? [Y/n]]\x1b[0m\n");
+        try out.writeAll("\x1b[33mSave vault? [Y/n]\x1b[0m\n");
         try out.flush();
 
         try in.fillMore();
