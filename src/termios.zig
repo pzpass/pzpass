@@ -7,7 +7,7 @@ pub fn set_terminal(original_termios: std.posix.termios) !void {
     try std.posix.tcsetattr(std.posix.STDOUT_FILENO, .NOW, raw);
 }
 
-pub fn set_terminal_pasword(original_termios: std.posix.termios) !void {
+pub fn set_terminal_password(original_termios: std.posix.termios) !void {
     var raw = original_termios;
     raw.lflag.ECHO = false;
     try std.posix.tcsetattr(std.posix.STDOUT_FILENO, .NOW, raw);
