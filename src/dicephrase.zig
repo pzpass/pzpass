@@ -54,11 +54,7 @@ pub fn generateDicePhrase(
     defer selected.deinit(allocator);
 
     for (0..word_count) |_| {
-        var index: usize = 0;
-
-        for (0..rng.intRangeLessThan(usize, 1, 10)) |_| {
-            index = rng.intRangeLessThan(usize, 0, words.len);
-        }
+        const index = rng.intRangeLessThan(usize, 0, words.len);
 
         try selected.append(allocator, try words.get(index));
     }

@@ -464,7 +464,7 @@ pub const Vault = struct {
             else => return err,
         };
 
-        if (index < 0 or index >= self.entries.items.len) {
+        if (index >= self.entries.items.len) {
             try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
             try out.flush();
             return;
@@ -508,7 +508,7 @@ pub const Vault = struct {
             else => return err,
         };
 
-        if (index < 0 or index >= self.entries.items.len) {
+        if (index >= self.entries.items.len) {
             try out.writeAll("\x1b[33mIndex is out of bounds.\x1b[0m\n");
             try out.flush();
             return false;
@@ -516,48 +516,76 @@ pub const Vault = struct {
 
         var item = self.entries.items[index];
 
-        var name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
-        try pzcrypt.mlockSlice(name);
+        const decrypted_name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
+        try pzcrypt.mlockSlice(decrypted_name);
         defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
+            pzcrypt.zeroAndMunlock(decrypted_name);
+            allocator.free(decrypted_name);
         }
 
-        var data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
-        try pzcrypt.mlockSlice(data);
+        const decrypted_data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
+        try pzcrypt.mlockSlice(decrypted_data);
         defer {
-            pzcrypt.zeroAndMunlock(data);
-            allocator.free(data);
+            pzcrypt.zeroAndMunlock(decrypted_data);
+            allocator.free(decrypted_data);
         }
 
-        try pzcrypt.decrypt(&item, self.vault_key, name, data);
-        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ name, data });
+        try pzcrypt.decrypt(&item, self.vault_key, decrypted_name, decrypted_data);
+        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ decrypted_name, decrypted_data });
         try out.flush();
 
-        name = getInput(
-            allocator,
-            out,
-            in,
-            "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
-        ) catch |err| switch (err) {
-            error.EmptyString => name,
-            else => return err,
+        const updated_name = blk: {
+            const input = getInput(
+                allocator,
+                out,
+                in,
+                "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
+            ) catch |err| switch (err) {
+                error.EmptyString => break :blk decrypted_name,
+                else => return err,
+            };
+            break :blk input;
         };
 
-        data = getInput(
-            allocator,
-            out,
-            in,
-            "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
-        ) catch |err| switch (err) {
-            error.EmptyString => data,
-            else => return err,
+        const updated_data = blk: {
+            const input = getInput(
+                allocator,
+                out,
+                in,
+                "\x1b[33mNew entry data (leave empty to keep):\x1b[0m ",
+            ) catch |err| switch (err) {
+                error.EmptyString => break :blk decrypted_data,
+                else => {
+                    if (updated_name.ptr != decrypted_name.ptr) {
+                        pzcrypt.zeroAndMunlock(updated_name);
+                        allocator.free(updated_name);
+                    }
+                    return err;
+                },
+            };
+            break :blk input;
         };
 
-        pzcrypt.encrypt(&item, self.vault_key, name, data);
-        try self.addEntry(allocator, io, name, data);
+        defer {
+            if (updated_name.ptr != decrypted_name.ptr) {
+                pzcrypt.zeroAndMunlock(updated_name);
+                allocator.free(updated_name);
+            }
+        }
+        defer {
+            if (updated_data.ptr != decrypted_data.ptr) {
+                pzcrypt.zeroAndMunlock(updated_data);
+                allocator.free(updated_data);
+            }
+        }
 
-        _ = self.entries.swapRemove(index);
+        pzcrypt.encrypt(&item, self.vault_key, updated_name, updated_data);
+        try self.addEntry(allocator, io, updated_name, updated_data);
+
+        const removed = self.entries.orderedRemove(index);
+        allocator.free(removed.ciphertext_name);
+        allocator.free(removed.ciphertext_data);
+
         try out.writeAll("\x1b[33mEntry updated successfully.\x1b[0m\n");
         try out.flush();
 
@@ -569,8 +597,8 @@ pub const Vault = struct {
         allocator: Allocator,
         index: usize,
     ) !void {
-        if (index < 0 or index >= self.entries.items.len) {
-            return error.OutOfBounbds;
+        if (index >= self.entries.items.len) {
+            return error.OutOfBounds;
         }
         const entry = self.entries.orderedRemove(index);
         allocator.free(entry.ciphertext_name);
@@ -596,7 +624,7 @@ pub const Vault = struct {
             else => return err,
         };
 
-        if (index < 0 or index >= self.entries.items.len) {
+        if (index >= self.entries.items.len) {
             try printOutOfBounds(out);
             return false;
         }
@@ -638,7 +666,7 @@ pub const Vault = struct {
 
         if (std.mem.eql(u8, name, entry_name)) {
             self.deleteEntry(allocator, index) catch |err| switch (err) {
-                error.OutOfBounbds => {
+                error.OutOfBounds => {
                     try printOutOfBounds(out);
                     return false;
                 },
