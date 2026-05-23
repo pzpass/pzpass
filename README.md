@@ -1,36 +1,32 @@
 # PzPass
 
-**PzPass** is a minimal, high-performance password generator and encrypted secret vault manager built with Zig.
-
-It prioritizes simplicity, control, and auditability over feature bloat.
+**PzPass** is a minimal, high-performance password generator and encrypted secret vault manager built with Zig. It prioritizes simplicity, control, and auditability over feature bloat.
 
 ## Requirements
 
-- zig version 0.16.0 or above
+- Zig 0.16.0 or above
 
 ---
 
 ## Features
 
-- 🔐 Secure password generation
-- 🗄️ Encrypted vault for storing secrets
-- 🔑 Password-based key derivation (KEK model)
-- ⚡ Fast and lightweight
-- 🧩 Minimal design, easy to understand and audit
-- 💻 CLI-first workflow
+- Encrypted vault for storing secrets (ChaCha20-Poly1305 AEAD)
+- Password-based key derivation (Argon2id)
+- Interactive TUI vault manager (add, view, edit, delete, search entries)
+- Secure password generation
+- Diceware passphrase generation (7776-word list)
+- Memory locking (mlock) for sensitive data
+- No external dependencies
+- Local-first (no cloud)
 
 ---
 
 ## Philosophy
 
-PzPass follows a few strict principles:
-
 - Keep it simple
 - Avoid hidden behavior
 - No unnecessary dependencies
 - Local-first (no cloud lock-in)
-
-This is a tool you can actually read, understand, and trust.
 
 ---
 
@@ -39,93 +35,122 @@ This is a tool you can actually read, understand, and trust.
 ```
 User Password
     ↓
-KDF → KEK (Key Encryption Key)
+Argon2id → KEK (Key Encryption Key)
     ↓
-Decrypt Vault Key
+Decrypt Vault Key (wrapped with ChaCha20-Poly1305)
     ↓
-Vault Key decrypts stored secrets
+Vault Key decrypts stored entries
 ```
 
 ### Core Concepts
 
-- **User Password**  
-  The only secret you need to remember.
-
-- **KEK (Key Encryption Key)**  
-  Derived from your password via a KDF.
-
-- **Vault Key**  
-  Encrypts all stored entries. Stored encrypted.
-
-- **Entries**  
-  Secrets encrypted using the vault key.
+- **User Password** — the only secret you need to remember
+- **KEK** — derived from your password via Argon2id
+- **Vault Key** — encrypts all stored entries; stored encrypted by the KEK
+- **Entries** — name/value secrets encrypted with the vault key
 
 ---
 
 ## Getting Started
 
-### Clone
+### Build
 
 ```bash
 git clone https://github.com/pzpass/pzpass.git
 cd pzpass
+zig build -Doptimize=ReleaseFast
 ```
 
-### Build
+With `ReleaseFast`, the binary is installed to `~/.local/bin/pzp`. Otherwise, it goes to `zig-out/bin/pzp`.
+
+### Generate dice list (one-time)
 
 ```bash
-zig build -Doptimize=ReleaseFast
+zig build gen
 ```
 
 ---
 
-### Run
+## Usage
+
+### Interactive vault (default)
 
 ```bash
 pzp
 ```
 
-## Usage
+Opens a TUI vault at `~/.pzpass/<USER>.vault.dat`. Prompts for your master password.
 
-> CLI is intentionally minimal and may evolve.
+#### Key bindings
 
-### Generate password
+| Key | Action |
+|-----|--------|
+| `a` | Add an entry |
+| `g` | Generate a password/diceware entry |
+| `e` | Edit an entry |
+| `d` | Delete an entry |
+| `l` | List entries |
+| `f` | Find entries (filter by name) |
+| `o` | Open/view an entry |
+| `i` | Show vault info |
+| `s` | Save vault to disk |
+| `u` | Update master password |
+| `h` | Show help |
+| `q` / `Esc` | Quit |
+
+### Open a custom vault file
 
 ```bash
-pzp pw <length>
+pzp -f <filename>
 ```
 
-### Generate diceware password
+### Generate a password
 
 ```bash
-pzp dice <word-count>
+pzp pass [length]
 ```
+
+Default length is 20 characters.
+
+### Generate a diceware passphrase
+
+```bash
+pzp dice [word-count]
+```
+
+Default word count is 5. Press any key (except `q`/`Esc`) to generate another.
 
 ---
 
 ## Security Notes
 
-- Passwords are never stored
-- Revealed records secureley wiped in memory
+- Passwords are never stored in plaintext
+- Revealed records are securely wiped from memory
 - Vault key is never stored in plaintext
-- All secrets are encrypted at rest
-- Changing password requires re-wrapping the vault key
+- All secrets are encrypted at rest (ChaCha20-Poly1305)
+- Key derivation uses Argon2id (memory-hard KDF)
+- Sensitive memory regions are locked with `mlock` to prevent swapping
+- Changing password re-wraps the vault key with a new KEK
 
 ---
 
-## Limitations (Current State)
+## Crypto Details
+
+| Component | Algorithm |
+|-----------|-----------|
+| Encryption | ChaCha20-Poly1305 (AEAD) |
+| Key derivation | Argon2id |
+| KDF parameters | t=5, m=2^18 (256 MiB), p=1 |
+| Vault key size | 256-bit |
+
+---
+
+## Limitations
 
 - No multi-user support
 - No remote sync or cloud integration
 - No GUI
 - No recovery mechanism (lose the password = lose access)
-
----
-
-## Roadmap (Ideas, Not Promises)
-
-- Multi-user support
-- Remote storage (S3, Google Drive, etc.)
 
 ---
 
@@ -142,17 +167,3 @@ Contributions are welcome, but keep it aligned:
 ## License
 
 MIT
-
----
-
-## Final Thoughts
-
-PzPass is not trying to be a mainstream password manager.
-
-It’s for people who:
-- want full control
-- understand the trade-offs
-- prefer simple, auditable systems
-
-If you’re looking for convenience and polish, there are better options.
-If you care about how things actually work, this might be worth using.

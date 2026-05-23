@@ -79,7 +79,7 @@ pub const Vault = struct {
         errdefer allocator.destroy(self);
 
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
-        errdefer self.entries.deinit(allocator);
+        errdefer freeEntries(self, allocator);
 
         self.file_path = try std.fmt.allocPrint(
             allocator,
@@ -92,7 +92,13 @@ pub const Vault = struct {
         );
         errdefer allocator.free(self.file_path);
 
-        self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch try self.new(allocator, io, password);
+        self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch |err| switch (err) {
+            error.FileNotFound => try self.new(allocator, io, password),
+            else => return err,
+        };
+
+        try pzcrypt.mlockSlice(&self.vault_key);
+        errdefer pzcrypt.zeroAndMunlock(&self.vault_key);
 
         var password_key = try pzcrypt.deriveKey(
             allocator,
@@ -106,19 +112,14 @@ pub const Vault = struct {
         try pzcrypt.mlockSlice(&password_key);
         defer pzcrypt.zeroAndMunlock(&password_key);
 
-        try pzcrypt.mlockSlice(&self.vault_key);
-
         aead.decrypt(
             &self.vault_key,
             &self.header.kek_ciphertext,
             self.header.kek_tag,
-            "",
+            if (self.header.version == 1) "" else &headerAuthData(&self.header),
             self.header.kek_nonce,
             password_key,
-        ) catch |err| {
-            self.deinit(allocator);
-            return err;
-        };
+        ) catch |err| return err;
 
         if (std.mem.eql(u8, &password_key, &self.vault_key)) {
             return error.KekIsVaultKey;
@@ -169,7 +170,7 @@ pub const Vault = struct {
             &self.header.kek_ciphertext,
             &self.header.kek_tag,
             &self.vault_key,
-            "",
+            &headerAuthData(&self.header),
             self.header.kek_nonce,
             password_key,
         );
@@ -192,11 +193,7 @@ pub const Vault = struct {
     pub fn deinit(self: *Vault, allocator: Allocator) void {
         allocator.free(self.file_path);
         pzcrypt.zeroAndMunlock(&self.vault_key);
-        for (self.entries.items) |item| {
-            allocator.free(item.ciphertext_name);
-            allocator.free(item.ciphertext_data);
-        }
-        self.entries.deinit(allocator);
+        freeEntries(self, allocator);
         allocator.destroy(self);
     }
 
@@ -518,7 +515,7 @@ pub const Vault = struct {
             return false;
         }
 
-        var item = self.entries.items[index];
+        const item = self.entries.items[index];
 
         const decrypted_name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
         try pzcrypt.mlockSlice(decrypted_name);
@@ -583,7 +580,6 @@ pub const Vault = struct {
             }
         }
 
-        pzcrypt.encrypt(&item, self.vault_key, updated_name, updated_data);
         try self.addEntry(allocator, io, updated_name, updated_data);
 
         const removed = self.entries.orderedRemove(index);
@@ -715,14 +711,19 @@ pub const Vault = struct {
         rng.bytes(&self.header.salt);
         rng.bytes(&self.header.kek_nonce);
 
+        self.header.mem_cost = Config.MEM_COST;
+        self.header.iterations = Config.ITERATIONS;
+        self.header.parallelism = Config.PARALLELISM;
+        self.header.version = Config.VERSION;
+
         var password_key = try pzcrypt.deriveKey(
             allocator,
             io,
             password,
             &self.header.salt,
-            Config.ITERATIONS,
-            Config.MEM_COST,
-            Config.PARALLELISM,
+            self.header.iterations,
+            self.header.mem_cost,
+            self.header.parallelism,
         );
         try pzcrypt.mlockSlice(&password_key);
         defer pzcrypt.zeroAndMunlock(&password_key);
@@ -731,13 +732,10 @@ pub const Vault = struct {
             &self.header.kek_ciphertext,
             &self.header.kek_tag,
             &self.vault_key,
-            "",
+            &headerAuthData(&self.header),
             self.header.kek_nonce,
             password_key,
         );
-        self.header.mem_cost = Config.MEM_COST;
-        self.header.iterations = Config.ITERATIONS;
-        self.header.parallelism = Config.PARALLELISM;
     }
 
     pub fn updatePasswordPrompt(
@@ -795,6 +793,43 @@ pub const Vault = struct {
         return true;
     }
 };
+
+fn freeEntries(self: *Vault, allocator: Allocator) void {
+    for (self.entries.items) |item| {
+        allocator.free(item.ciphertext_name);
+        allocator.free(item.ciphertext_data);
+    }
+    self.entries.deinit(allocator);
+}
+
+const header_auth_len = @sizeOf(usize) + @sizeOf(u32) * 3 + Config.SALT_LEN;
+
+fn headerAuthData(header: *const Vault.Header) [header_auth_len]u8 {
+    var buf: [header_auth_len]u8 = undefined;
+    var offset: usize = 0;
+
+    var size_buff: [@sizeOf(usize)]u8 = undefined;
+    std.mem.writeInt(usize, &size_buff, header.version, .little);
+    @memcpy(buf[offset..][0..@sizeOf(usize)], &size_buff);
+    offset += @sizeOf(usize);
+
+    var int_buff: [@sizeOf(u32)]u8 = undefined;
+    std.mem.writeInt(u32, &int_buff, header.iterations, .little);
+    @memcpy(buf[offset..][0..@sizeOf(u32)], &int_buff);
+    offset += @sizeOf(u32);
+
+    std.mem.writeInt(u32, &int_buff, header.mem_cost, .little);
+    @memcpy(buf[offset..][0..@sizeOf(u32)], &int_buff);
+    offset += @sizeOf(u32);
+
+    std.mem.writeInt(u32, &int_buff, header.parallelism, .little);
+    @memcpy(buf[offset..][0..@sizeOf(u32)], &int_buff);
+    offset += @sizeOf(u32);
+
+    @memcpy(buf[offset..][0..Config.SALT_LEN], &header.salt);
+
+    return buf;
+}
 
 pub fn takeDelimiter(
     out: *Writer,
@@ -895,4 +930,70 @@ test "init" {
     try vault.deleteEntry(allocator, 0);
 
     try vault.updatePassword(allocator, io, "orange-tiger");
+}
+
+test "wrong password fails cleanly without corruption" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const env = std.testing.environ;
+
+    const cwd = env.getPosix("PWD") orelse unreachable;
+    const file_name = "wrong-password.vault.dat";
+
+    {
+        var vault = try Vault.init(allocator, io, "correct-password", cwd, ".pzpass", file_name);
+        defer vault.deinit(allocator);
+        try vault.addEntry(allocator, io, "name", "data");
+        try vault.save(allocator, io, cwd, ".pzpass", file_name);
+    }
+
+    try std.testing.expectError(
+        error.AuthenticationFailed,
+        Vault.init(allocator, io, "wrong-password", cwd, ".pzpass", file_name),
+    );
+}
+
+test "corrupt vault file errors instead of silently creating a new vault" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const env = std.testing.environ;
+
+    const cwd = env.getPosix("PWD") orelse unreachable;
+    const file_name = "corrupt.vault.dat";
+
+    try storage.writeFile(allocator, io, cwd, ".pzpass", file_name, "not a vault");
+
+    try std.testing.expectError(
+        error.InvalidMagic,
+        Vault.init(allocator, io, "any-password", cwd, ".pzpass", file_name),
+    );
+}
+
+test "tampered header fails to decrypt" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const env = std.testing.environ;
+
+    const cwd = env.getPosix("PWD") orelse unreachable;
+    const file_name = "tampered.vault.dat";
+
+    {
+        var vault = try Vault.init(allocator, io, "correct-password", cwd, ".pzpass", file_name);
+        defer vault.deinit(allocator);
+        try vault.addEntry(allocator, io, "name", "data");
+        try vault.save(allocator, io, cwd, ".pzpass", file_name);
+    }
+
+    const data = try storage.readFileAlloc(allocator, io, cwd, ".pzpass", file_name);
+    defer allocator.rawFree(data, alignment, std.heap.page_size_min);
+
+    const iterations_offset = MAGIC.len + @sizeOf(usize) + Config.SALT_LEN;
+    data[iterations_offset] ^= 0x01;
+
+    try storage.writeFile(allocator, io, cwd, ".pzpass", file_name, data);
+
+    try std.testing.expectError(
+        error.AuthenticationFailed,
+        Vault.init(allocator, io, "correct-password", cwd, ".pzpass", file_name),
+    );
 }

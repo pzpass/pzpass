@@ -95,15 +95,6 @@ pub fn build(b: *std.Build) void {
     clean_up_step.dependOn(&run_clean_up.step);
 }
 
-fn createDirectory(path: []const u8) void {
-    std.fs.cwd().makeDir(path) catch |err| switch (err) {
-        error.PathAlreadyExists => return,
-        else => {
-            std.debug.print("Could not create directory: {}\n", .{err});
-        },
-    };
-}
-
 fn buildLocalBinPath(allocator: std.mem.Allocator, home: ?[]const u8) []const u8 {
     const local_bin_path = std.fs.path.join(allocator, &[_][]const u8{
         home.?,

@@ -6,10 +6,6 @@ const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
 
-pub fn randomBytes(buf: []u8) void {
-    std.crypto.random.bytes(buf);
-}
-
 pub fn deriveKey(
     allocator: Allocator,
     io: std.Io,
