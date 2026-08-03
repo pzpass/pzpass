@@ -19,7 +19,7 @@ pub fn runPassphraseGenerator(
         5;
     while (true) {
         const original_termios = try std.posix.tcgetattr(std.posix.STDOUT_FILENO);
-        defer termios.reset_terminal(original_termios);
+        defer termios.reset_terminal(original_termios) catch {};
 
         try termios.set_terminal(original_termios);
 

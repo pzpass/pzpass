@@ -1,6 +1,6 @@
 pub const MAGIC = "PZPASS".*;
 pub const Config = packed struct {
-    pub const VERSION = 1;
+    pub const VERSION = 2;
 
     pub const SALT_LEN = 16;
     pub const NONCE_LEN = 12;

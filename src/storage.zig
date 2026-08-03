@@ -103,7 +103,7 @@ pub fn writeFile(
     const tmp_name = try std.fmt.allocPrint(allocator, "{s}.tmp", .{file_name});
     defer allocator.free(tmp_name);
 
-    const perms: std.Io.File.Permissions = @enumFromInt(0o600);
+    const perms = std.Io.File.Permissions.fromMode(0o600);
     const tmp_file = try sub_dir.createFile(io, tmp_name, .{ .truncate = true, .permissions = perms });
     defer tmp_file.close(io);
 

@@ -23,19 +23,3 @@ pub fn downloadFile(init: std.process.Init, allocator: std.mem.Allocator, url: [
         std.debug.print("Could not fetch {s}\n", .{destination});
     }
 }
-
-fn printFileLineByLineExceptCommentsAndEmptyLines(file_path: []const u8) !void {
-    const read_file = try std.Io.Dir.cwd().openFile(file_path, .{ .mode = .read_only });
-    defer read_file.close();
-
-    var read_buff: [4096]u8 = undefined;
-    var read_file_reader = read_file.reader(&read_buff);
-    const read_file_interface = &read_file_reader.interface;
-
-    while (try read_file_interface.takeDelimiter('\n')) |line_raw| {
-        const line = std.mem.trim(u8, line_raw, "\r");
-        if (line.len == 0) continue;
-        if (line[0] == '#') continue;
-        std.debug.print("{s}\n", .{line});
-    }
-}

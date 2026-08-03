@@ -22,12 +22,14 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    if (optimize == .ReleaseFast) {
+    if (optimize == .fast) {
         mod.strip = true;
         exe.root_module.strip = true;
-        b.install_path = buildLocalBinPath(b.allocator, b.graph.environ_map.get("HOME"));
+        // Installed into `<prefix>/bin/pzp`; pass `--prefix "$HOME"` to get
+        // `~/.local/bin/pzp` (Zig >= 0.15 resolves install paths from the prefix
+        // instead of a build script assigned install path).
         const install_exe = b.addInstallArtifact(exe, .{
-            .dest_dir = .{ .override = .prefix },
+            .dest_dir = .{ .override = .bin },
         });
         b.getInstallStep().dependOn(&install_exe.step);
     } else {
@@ -41,9 +43,7 @@ pub fn build(b: *std.Build) void {
 
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const mod_tests = b.addTest(.{
         .root_module = mod,
@@ -93,23 +93,4 @@ pub fn build(b: *std.Build) void {
     const run_clean_up = b.addRunArtifact(clean_up);
     const clean_up_step = b.step("clean", "Clean up");
     clean_up_step.dependOn(&run_clean_up.step);
-}
-
-fn createDirectory(path: []const u8) void {
-    std.fs.cwd().makeDir(path) catch |err| switch (err) {
-        error.PathAlreadyExists => return,
-        else => {
-            std.debug.print("Could not create directory: {}\n", .{err});
-        },
-    };
-}
-
-fn buildLocalBinPath(allocator: std.mem.Allocator, home: ?[]const u8) []const u8 {
-    const local_bin_path = std.fs.path.join(allocator, &[_][]const u8{
-        home.?,
-        ".local/bin",
-    }) catch |err| {
-        std.debug.panic("Could not local bin path: {}\n", .{err});
-    };
-    return local_bin_path;
 }
