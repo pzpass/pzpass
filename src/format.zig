@@ -63,7 +63,7 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
     }
 
     const version = try r.takeInt(usize, .little);
-    if (version != Config.VERSION) {
+    if (version < 1 or version > Config.VERSION) {
         return error.InvalidVersion;
     }
 
@@ -119,9 +119,11 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
         try r.readSliceAll(&nonce_data);
 
         const ciphertext_name = try allocator.alloc(u8, name_len);
+        errdefer allocator.free(ciphertext_name);
         try r.readSliceAll(ciphertext_name);
 
         const ciphertext_data = try allocator.alloc(u8, data_len);
+        errdefer allocator.free(ciphertext_data);
         try r.readSliceAll(ciphertext_data);
 
         var tag_name: [Config.TAG_LEN]u8 = undefined;

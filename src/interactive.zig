@@ -48,7 +48,7 @@ pub fn run(
     defer resetBuffer(out);
 
     const original_termios = try std.posix.tcgetattr(std.posix.STDOUT_FILENO);
-    defer termios.reset_terminal(original_termios);
+    defer termios.reset_terminal(original_termios) catch {};
 
     try out.writeAll("\x1b[33mPassword:\x1b[0m ");
     try out.flush();
@@ -57,7 +57,7 @@ pub fn run(
     const user_password = try takeDelimiter(out, in, '\n');
 
     try flushInput(out, in);
-    termios.reset_terminal(original_termios);
+    try termios.reset_terminal(original_termios);
     try termios.set_terminal(original_termios);
 
     try out.writeAll("\n");
@@ -85,28 +85,28 @@ pub fn run(
             '\n', '\r' => {},
             27, 'q' => break,
             'a' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
 
                 vault_changed = try vault.addEntryPrompt(allocator, io, prompt_options) or vault_changed;
 
                 try termios.set_terminal(original_termios);
             },
             'e' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
 
                 vault_changed = try vault.editEntryPrompt(allocator, io, prompt_options) or vault_changed;
 
                 try termios.set_terminal(original_termios);
             },
             'g' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
 
                 vault_changed = try vault.addPasswordPrompt(allocator, io, prompt_options) or vault_changed;
 
                 try termios.set_terminal(original_termios);
             },
             'd' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
 
                 vault_changed = try vault.deleteEntryPrompt(allocator, prompt_options) or vault_changed;
 
@@ -116,26 +116,26 @@ pub fn run(
                 try vault.listEntries(allocator, out, null);
             },
             'f' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
 
                 try vault.findEntryPrompt(allocator, prompt_options);
 
                 try termios.set_terminal(original_termios);
             },
             'o' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
 
                 try vault.openEntryPrompt(allocator, prompt_options);
 
                 try termios.set_terminal(original_termios);
             },
             'u' => {
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
                 try termios.set_terminal_password(original_termios);
 
                 vault_changed = try vault.updatePasswordPrompt(allocator, io, prompt_options) or vault_changed;
 
-                termios.reset_terminal(original_termios);
+                try termios.reset_terminal(original_termios);
                 try termios.set_terminal(original_termios);
             },
             'i' => {
