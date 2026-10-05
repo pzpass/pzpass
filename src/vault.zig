@@ -996,4 +996,19 @@ test "tampered header fails to decrypt" {
         error.AuthenticationFailed,
         Vault.init(allocator, io, "correct-password", cwd, ".pzpass", file_name),
     );
+
+    // The vault on disk is left with a tampered header, which would make the
+    // next run fail while creating the vault.
+    deleteTestFile(io, cwd, ".pzpass", file_name);
+    deleteTestFile(io, cwd, ".pzpass", file_name ++ ".bak");
+}
+
+fn deleteTestFile(io: std.Io, base_dir: []const u8, sub_dir_name: []const u8, file_name: []const u8) void {
+    var base = std.Io.Dir.openDirAbsolute(io, base_dir, .{ .access_sub_paths = true }) catch return;
+    defer base.close(io);
+
+    const sub_dir = base.openDir(io, sub_dir_name, .{ .access_sub_paths = true }) catch return;
+    defer sub_dir.close(io);
+
+    sub_dir.deleteFile(io, file_name) catch {};
 }

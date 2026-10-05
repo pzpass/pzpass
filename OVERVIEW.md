@@ -1,6 +1,6 @@
 # PzPass — Codebase Overview
 
-**PzPass** is a minimal, zero-dependency password manager / encrypted secret vault written in **Zig** (v0.16.0+). The compiled binary is called `pzp`.
+**PzPass** is a minimal, zero-dependency password manager / encrypted secret vault written in **Zig** (v0.17.0+). The compiled binary is called `pzp`.
 
 - **License:** MIT
 - **Author:** Anton Sidorov (Tony Sidrock)
@@ -13,7 +13,7 @@
 | Aspect | Detail |
 |--------|--------|
 | **Language** | Zig exclusively (no C, no other languages) |
-| **Zig Version** | `0.16.0`+ |
+| **Zig Version** | `0.17.0`+ |
 | **External Dependencies** | **None** — all crypto from `std.crypto` |
 | **Build System** | Zig's built-in build system (`build.zig` + `build.zig.zon`) |
 | **CI/CD** | GitHub Actions (6 workflows) |
@@ -191,7 +191,7 @@ For each entry:
 | Command | Purpose |
 |---------|---------|
 | `zig build` | Build debug binary → `zig-out/bin/pzp` |
-| `zig build -Doptimize=ReleaseFast` | Release build → `~/.local/bin/pzp` |
+| `zig build --release=fast --prefix "$HOME"` | Release build → `~/.local/bin/pzp` |
 | `zig build gen` | Regenerate `src/dicelist.zig` from `dict/words.txt` |
 | `zig build clean` | Remove build artifacts |
 | `zig build test` | Run tests |

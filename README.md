@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Zig 0.16.0 or above
+- Zig 0.17.0 or above
 
 ---
 
@@ -58,10 +58,10 @@ Vault Key decrypts stored entries
 ```bash
 git clone https://github.com/pzpass/pzpass.git
 cd pzpass
-zig build -Doptimize=ReleaseFast
+zig build --release=fast --prefix "$HOME"
 ```
 
-With `ReleaseFast`, the binary is installed to `~/.local/bin/pzp`. Otherwise, it goes to `zig-out/bin/pzp`.
+The binary is installed to `~/.local/bin/pzp`. Without `--prefix` it goes to `zig-out/bin/pzp`.
 
 ### Generate dice list (one-time)
 
