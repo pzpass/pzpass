@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "servers": {
+      "/Users/cloudadmin/.local/bin/zig-mcp": {
+        "type": "local",
+        "command": [
+          "/Users/cloudadmin/.local/bin/zig-mcp"
+        ]
+      }
+    }
+  }
+}
