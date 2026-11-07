@@ -20,56 +20,81 @@ jobs:
       - name: Zig Security Audit
         env:
           GH_EVENT: ${{ github.event_name }}
-          GH_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          set -uo pipefail
+
           echo "## Zig Security Audit" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Pattern | Count | Level |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---------|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
 
           total=0
+          critical=0
+
+          # Exact snapshot the PR was opened against (robust vs. a live branch ref).
+          BASE_REF="${GH_BASE_SHA:-}"
 
           audit() {
-            local pattern="$1" level="$2" label="$3"
+            local pattern="$1" level="$2" label="$3" mode="${4:-fixed}"
             local count=0
-            
+
             if [[ -z "$pattern" || -z "$level" || -z "$label" ]]; then
-                echo "::error::audit(): missing required arguments (pattern, level, label)" >&2
-                return 1
+              echo "::error::audit(): missing required arguments (pattern, level, label)" >&2
+              return 1
             fi
-            
+
+            local grep_flags
+            if [[ "$mode" == "regex" ]]; then
+              grep_flags=(-rn --include='*.zig' -e "$pattern")
+            else
+              grep_flags=(-rnF --include='*.zig' -e "$pattern")
+            fi
+
             if [[ -d "src/" ]]; then
-                count=$(grep -rn --include='*.zig' -e "$pattern" src/ 2>/dev/null | wc -l)
-                count="${count##* }"  # Trim whitespace from wc output
+              # `|| true`: grep exits 1 on no match; pipefail would otherwise abort under set -e.
+              count=$(grep "${grep_flags[@]}" src/ 2>/dev/null | wc -l | tr -d '[:space:]' || true)
             fi
-            
+            [[ -z "$count" ]] && count=0
+
             if [[ "$count" -gt 0 ]]; then
-                {
-                    echo "| \`$label\` | $count | $level |"
-                } >> "$GITHUB_STEP_SUMMARY"
-                total=$((total + count))
+              {
+                echo "| \`$label\` | $count | $level |"
+              } >> "$GITHUB_STEP_SUMMARY"
+              total=$((total + count))
+              [[ "$level" == "Critical" ]] && critical=$((critical + count))
             fi
-            
-            if [[ "${GH_EVENT:-}" = "pull_request" && -n "${GH_BASE_REF:-}" ]]; then
-                local temp_file
-                temp_file=$(mktemp)
-                
-                git diff --name-only "origin/$GH_BASE_REF" -- '*.zig' 2>/dev/null > "$temp_file"
-                
-                while IFS= read -r file; do
-                    [[ -f "$file" ]] || continue
-                    grep -n "$pattern" "$file" 2>/dev/null | while IFS=: read -r line content; do
-                        # Escape special characters for safe annotation
-                        content="${content//%/%%}"  # Escape % for GitHub's formatting
-                        echo "::warning file=$file,line=$line::[$level] $label: ${content# }"
+
+            if [[ "${GH_EVENT:-}" = "pull_request" && -n "$BASE_REF" ]]; then
+              local temp_file
+              temp_file=$(mktemp)
+
+              # Only files this PR actually changed.
+              git diff --name-only "$BASE_REF" -- '*.zig' 2>/dev/null > "$temp_file"
+
+              while IFS= read -r file; do
+                [[ -f "$file" ]] || continue
+
+                # Only lines ADDED by this PR (not the whole current file), so we flag
+                # what the change introduced rather than pre-existing occurrences.
+                # --line-number gives the real file line number for the annotation.
+                git diff --line-number -U0 "$BASE_REF" -- "$file" 2>/dev/null \
+                  | grep -E '^[0-9]+:\+' \
+                  | while IFS=: read -r line content; do
+                      content="${content#+}"
+                      # Escape characters that break GitHub annotation parsing.
+                      content="${content//\\/\\\\}"
+                      content="${content//%/%25}"
+                      content="${content//::/%3A%3A}"
+                      echo "::warning file=${file},line=${line}::[$level] ${label}: ${content}"
                     done
-                done < "$temp_file"
-                
-                rm -f "$temp_file"
+              done < "$temp_file"
+
+              rm -f "$temp_file"
             fi
           }
-          
-          audit '@setRuntimeSafety\(false\)' 'Critical' '@setRuntimeSafety(false)'
+
+          audit '@setRuntimeSafety\(false\)' 'Critical' '@setRuntimeSafety(false)' regex
           audit '@ptrCast' 'Tracked' '@ptrCast'
           audit '@ptrFromInt' 'Tracked' '@ptrFromInt'
           audit '@intFromPtr' 'Tracked' '@intFromPtr'
@@ -81,3 +106,12 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Total: $total** patterns tracked" >> "$GITHUB_STEP_SUMMARY"
           echo "_Not bugs — areas requiring careful review during changes._" >> "$GITHUB_STEP_SUMMARY"
+
+          # Critical findings gate the job; Review/Info/Tracked are annotations only.
+          if (( critical > 0 )); then
+            {
+              echo ""
+              echo "::error::Found ${critical} Critical pattern(s) — see report above. Fix or explicitly review before merging."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

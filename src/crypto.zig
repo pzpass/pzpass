@@ -87,7 +87,7 @@ pub fn decrypt(
 }
 
 pub fn mlockSlice(key: []u8) !void {
-    if (builtin.os.tag == .linux) {
+    if (builtin.target.os.tag == .linux) {
         const locked_key_status = std.os.linux.mlock2(key.ptr, key.len, .{});
         if (locked_key_status != 0) {
             std.debug.print("Cannot mlock key: size {d}\n", .{locked_key_status});
@@ -98,7 +98,7 @@ pub fn mlockSlice(key: []u8) !void {
 
 pub fn zeroAndMunlock(key: []u8) void {
     std.crypto.secureZero(u8, key[0..]);
-    if (builtin.os.tag == .linux) {
+    if (builtin.target.os.tag == .linux) {
         const munlock_status = std.os.linux.munlock(key.ptr, key.len);
         if (munlock_status != 0) {
             std.debug.print("Cannot munlock, status: {d}", .{munlock_status});

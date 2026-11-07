@@ -81,8 +81,7 @@ pub const Vault = struct {
         self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
         errdefer freeEntries(self, allocator);
 
-        self.file_path = try std.fmt.allocPrint(
-            allocator,
+        self.file_path = try allocator.print(
             "{s}/{s}/{s}",
             .{
                 base_dir,
@@ -918,7 +917,7 @@ test "init" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const cwd = env.getPosix("PWD") orelse unreachable;
+    const cwd = env.getPosix("PWD") orelse "/tmp";
 
     const file_path = try storage.VaultPath.default(allocator, io, cwd, "vault.vault.dat");
     defer allocator.free(file_path);
@@ -937,7 +936,7 @@ test "wrong password fails cleanly without corruption" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const cwd = env.getPosix("PWD") orelse unreachable;
+    const cwd = env.getPosix("PWD") orelse "/tmp";
     const file_name = "wrong-password.vault.dat";
 
     {
@@ -958,7 +957,7 @@ test "corrupt vault file errors instead of silently creating a new vault" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const cwd = env.getPosix("PWD") orelse unreachable;
+    const cwd = env.getPosix("PWD") orelse "/tmp";
     const file_name = "corrupt.vault.dat";
 
     try storage.writeFile(allocator, io, cwd, ".pzpass", file_name, "not a vault");
@@ -974,7 +973,7 @@ test "tampered header fails to decrypt" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const cwd = env.getPosix("PWD") orelse unreachable;
+    const cwd = env.getPosix("PWD") orelse "/tmp";
     const file_name = "tampered.vault.dat";
 
     {

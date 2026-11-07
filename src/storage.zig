@@ -20,12 +20,11 @@ pub const VaultPath = struct {
         );
         home_dir.createDirPath(io, ".pzpass") catch |err| switch (err) {
             error.PathAlreadyExists => {},
-            else => std.debug.print("{}\n", .{err}),
+            else => return err,
         };
 
         const actual_filename = filename orelse "vault.dat";
-        return std.fmt.allocPrint(
-            allocator,
+        return allocator.print(
             "{s}/.pzpass/{s}",
             .{
                 base_dir,
@@ -97,10 +96,10 @@ pub fn writeFile(
     );
     defer sub_dir.close(io);
 
-    const bak_name = try std.fmt.allocPrint(allocator, "{s}.bak", .{file_name});
+    const bak_name = try allocator.print("{s}.bak", .{file_name});
     defer allocator.free(bak_name);
 
-    const tmp_name = try std.fmt.allocPrint(allocator, "{s}.tmp", .{file_name});
+    const tmp_name = try allocator.print("{s}.tmp", .{file_name});
     defer allocator.free(tmp_name);
 
     const perms = std.Io.File.Permissions.fromMode(0o600);
@@ -135,13 +134,12 @@ test "default path" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const home = env.getPosix("HOME") orelse unreachable;
+    const home = env.getPosix("HOME") orelse "/tmp";
 
     const default_path = try VaultPath.default(allocator, io, home, "storage.vault.dat");
     defer allocator.free(default_path);
 
-    const expected = try std.fmt.allocPrint(
-        allocator,
+    const expected = try allocator.print(
         "{s}/.pzpass/{s}.vault.dat",
         .{ home, "storage" },
     );
@@ -155,13 +153,12 @@ test "testing path" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const cwd = env.getPosix("PWD") orelse unreachable;
+    const cwd = env.getPosix("PWD") orelse "/tmp";
 
     const testing_path = try VaultPath.default(allocator, io, cwd, "storage.vault.dat");
     defer allocator.free(testing_path);
 
-    const expected = try std.fmt.allocPrint(
-        allocator,
+    const expected = try allocator.print(
         "{s}/.pzpass/storage.vault.dat",
         .{cwd},
     );
@@ -174,6 +171,6 @@ test "store file" {
     const io = std.testing.io;
     const env = std.testing.environ;
 
-    const cwd = env.getPosix("PWD") orelse unreachable;
+    const cwd = env.getPosix("PWD") orelse "/tmp";
     try writeFile(allocator, io, cwd, ".pzpass", "mock.stored.file", "asdfgh");
 }

@@ -159,7 +159,7 @@ test "serialize deserialize" {
     const pass = @import("passwordgen.zig");
     const storage = @import("storage.zig");
 
-    const home = env.getPosix("PWD") orelse unreachable;
+    const home = env.getPosix("PWD") orelse "/tmp";
     const sub_dir_name = ".pzpass";
     const file_name = "format.vault.dat";
 
@@ -199,8 +199,7 @@ test "serialize deserialize" {
     const vault_deserialized = try allocator.create(Vault);
     defer vault_deserialized.deinit(allocator);
 
-    vault_deserialized.file_path = try std.fmt.allocPrint(
-        allocator,
+    vault_deserialized.file_path = try allocator.print(
         "{s}/{s}/{s}",
         .{
             home,
@@ -236,8 +235,7 @@ test "serialize deserialize" {
 
     const vault_from_file = try allocator.create(Vault);
 
-    vault_from_file.file_path = try std.fmt.allocPrint(
-        allocator,
+    vault_from_file.file_path = try allocator.print(
         "{s}/{s}/{s}",
         .{
             home,
