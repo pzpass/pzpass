@@ -42,8 +42,7 @@ pub fn run(init: std.process.Init) !void {
     defer allocator.free(args);
 
     if (args.len < 2) {
-        const vault_path = try std.fmt.allocPrint(
-            allocator,
+        const vault_path = try allocator.print(
             "{s}.vault.dat",
             .{username},
         );
@@ -93,7 +92,7 @@ test "vault" {
     const io = std.testing.io;
     const environ = std.testing.environ;
 
-    const cwd = environ.getPosix("PWD") orelse unreachable;
+    const cwd = environ.getPosix("PWD") orelse "/tmp";
     var vault = try Vault.init(allocator, io, "blue-penguin", cwd, ".pzpass", "test.vault.dat");
     defer vault.deinit(allocator);
 }
