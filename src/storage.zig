@@ -106,15 +106,11 @@ pub fn writeFile(
     const tmp_file = try sub_dir.createFile(io, tmp_name, .{ .truncate = true, .permissions = perms });
     defer tmp_file.close(io);
 
-    var buff: [8092]u8 = undefined;
+    var buff: [8192]u8 = undefined;
 
-    // std.debug.print("Data: {x}", .{data});
     var file_writer = tmp_file.writer(io, &buff);
     const writer = &file_writer.interface;
-    const bytes_written = try writer.write(data);
-    if (bytes_written != data.len) {
-        return error.IncompleteWrite;
-    }
+    try writer.writeAll(data);
     try writer.flush();
     try tmp_file.sync(io);
 

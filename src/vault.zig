@@ -91,13 +91,22 @@ pub const Vault = struct {
         );
         errdefer allocator.free(self.file_path);
 
-        self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch |err| switch (err) {
-            error.FileNotFound => try self.new(allocator, io, password),
-            else => return err,
+        const created = blk: {
+            self.fromFile(allocator, io, base_dir, sub_dir, file_name) catch |err| switch (err) {
+                error.FileNotFound => {
+                    try self.new(allocator, io, password);
+                    break :blk true;
+                },
+                else => return err,
+            };
+            break :blk false;
         };
 
         try pzcrypt.mlockSlice(&self.vault_key);
         errdefer pzcrypt.zeroAndMunlock(&self.vault_key);
+
+        // `new` already generated and wrapped the key; skip a second Argon2 run.
+        if (created) return self;
 
         var password_key = try pzcrypt.deriveKey(
             allocator,
@@ -135,8 +144,9 @@ pub const Vault = struct {
     ) !void {
         const rng_impl: std.Random.IoSource = .{ .io = io };
         const rng = rng_impl.interface();
-        rng.bytes(&self.vault_key);
         try pzcrypt.mlockSlice(&self.vault_key);
+        errdefer pzcrypt.zeroAndMunlock(&self.vault_key);
+        rng.bytes(&self.vault_key);
 
         self.header = .{
             .magic = MAGIC,
@@ -276,38 +286,40 @@ pub const Vault = struct {
         name: []const u8,
         data: []const u8,
     ) !void {
-        const nonce_name = try allocator.alloc(u8, Config.NONCE_LEN);
-        defer allocator.free(nonce_name);
+        const entry = try self.makeEntry(allocator, io, name, data);
+        errdefer freeEntry(allocator, entry);
 
-        const nonce_data = try allocator.alloc(u8, Config.NONCE_LEN);
-        defer allocator.free(nonce_data);
+        try self.entries.append(allocator, entry);
+    }
 
-        const tag_name = try allocator.alloc(u8, Config.TAG_LEN);
-        defer allocator.free(tag_name);
+    /// Encrypts `name`/`data` into a new entry; the caller owns its ciphertexts.
+    fn makeEntry(
+        self: *Vault,
+        allocator: Allocator,
+        io: std.Io,
+        name: []const u8,
+        data: []const u8,
+    ) !Entry {
+        const ciphertext_name = try allocator.alloc(u8, name.len);
+        errdefer allocator.free(ciphertext_name);
+        const ciphertext_data = try allocator.alloc(u8, data.len);
 
-        const tag_data = try allocator.alloc(u8, Config.TAG_LEN);
-        defer allocator.free(tag_data);
+        var entry: Entry = .{
+            .nonce_name = undefined,
+            .nonce_data = undefined,
+            .tag_name = undefined,
+            .tag_data = undefined,
+            .ciphertext_name = ciphertext_name,
+            .ciphertext_data = ciphertext_data,
+        };
 
         const rng_impl: std.Random.IoSource = .{ .io = io };
         const rng = rng_impl.interface();
-        rng.bytes(nonce_name);
-        rng.bytes(nonce_data);
-
-        const ciphertext_name = try allocator.alloc(u8, name.len);
-        const ciphertext_data = try allocator.alloc(u8, data.len);
-
-        var entry = Vault.Entry.init(
-            nonce_name,
-            nonce_data,
-            tag_name,
-            tag_data,
-            ciphertext_name,
-            ciphertext_data,
-        );
+        rng.bytes(&entry.nonce_name);
+        rng.bytes(&entry.nonce_data);
 
         pzcrypt.encrypt(&entry, self.vault_key, name, data);
-
-        try self.entries.append(allocator, entry);
+        return entry;
     }
 
     pub fn addEntryPrompt(
@@ -579,11 +591,11 @@ pub const Vault = struct {
             }
         }
 
-        try self.addEntry(allocator, io, updated_name, updated_data);
-
-        const removed = self.entries.orderedRemove(index);
-        allocator.free(removed.ciphertext_name);
-        allocator.free(removed.ciphertext_data);
+        // Replace in place so the edited entry keeps its index.
+        const updated = try self.makeEntry(allocator, io, updated_name, updated_data);
+        const old = self.entries.items[index];
+        self.entries.items[index] = updated;
+        freeEntry(allocator, old);
 
         try out.writeAll("\x1b[33mEntry updated successfully.\x1b[0m\n");
         try out.flush();
@@ -599,9 +611,7 @@ pub const Vault = struct {
         if (index >= self.entries.items.len) {
             return error.OutOfBounds;
         }
-        const entry = self.entries.orderedRemove(index);
-        allocator.free(entry.ciphertext_name);
-        allocator.free(entry.ciphertext_data);
+        freeEntry(allocator, self.entries.orderedRemove(index));
     }
 
     pub fn deleteEntryPrompt(
@@ -793,11 +803,13 @@ pub const Vault = struct {
     }
 };
 
+fn freeEntry(allocator: Allocator, entry: Vault.Entry) void {
+    allocator.free(entry.ciphertext_name);
+    allocator.free(entry.ciphertext_data);
+}
+
 fn freeEntries(self: *Vault, allocator: Allocator) void {
-    for (self.entries.items) |item| {
-        allocator.free(item.ciphertext_name);
-        allocator.free(item.ciphertext_data);
-    }
+    for (self.entries.items) |item| freeEntry(allocator, item);
     self.entries.deinit(allocator);
 }
 
@@ -837,7 +849,7 @@ pub fn takeDelimiter(
 ) !?[]u8 {
     const slice = in.takeDelimiter(delimeter) catch |err| switch (err) {
         error.StreamTooLong => {
-            try printInputTooLong(out, in.bufferedLen());
+            try printInputTooLong(out, in.buffer.len);
             _ = try in.discardDelimiterInclusive('\n');
             return err;
         },
@@ -866,7 +878,8 @@ fn getInput(
     while (true) {
         try out.writeAll(prompt);
         try out.flush();
-        const input_string_slice = (try takeDelimiter(out, in, '\n')) orelse continue;
+        // null means stdin was closed; re-prompting would loop forever.
+        const input_string_slice = (try takeDelimiter(out, in, '\n')) orelse return error.EndOfStream;
         const input_string_trimmed = std.mem.trim(u8, input_string_slice, " \r\t");
         if (input_string_trimmed.len == 0) return error.EmptyString;
         const input_string = try allocator.dupe(u8, input_string_trimmed);
@@ -929,6 +942,42 @@ test "init" {
     try vault.deleteEntry(allocator, 0);
 
     try vault.updatePassword(allocator, io, "orange-tiger");
+}
+
+test "new vault reopens with the same password" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const env = std.testing.environ;
+
+    const cwd = env.getPosix("PWD") orelse "/tmp";
+    const file_name = "reopen.vault.dat";
+    deleteTestFile(io, cwd, ".pzpass", file_name);
+    defer deleteTestFile(io, cwd, ".pzpass", file_name);
+    defer deleteTestFile(io, cwd, ".pzpass", file_name ++ ".bak");
+
+    {
+        var vault = try Vault.init(allocator, io, "correct-password", cwd, ".pzpass", file_name);
+        defer vault.deinit(allocator);
+        try vault.addEntry(allocator, io, "first", "one");
+        try vault.addEntry(allocator, io, "second", "two");
+        try vault.save(allocator, io, cwd, ".pzpass", file_name);
+    }
+
+    var vault = try Vault.init(allocator, io, "correct-password", cwd, ".pzpass", file_name);
+    defer vault.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 2), vault.entries.items.len);
+
+    // Replacing in place (as the edit prompt does) keeps the index.
+    const updated = try vault.makeEntry(allocator, io, "first", "uno");
+    const old = vault.entries.items[0];
+    vault.entries.items[0] = updated;
+    freeEntry(allocator, old);
+
+    var name: [5]u8 = undefined;
+    var data: [3]u8 = undefined;
+    try pzcrypt.decrypt(&vault.entries.items[0], vault.vault_key, &name, &data);
+    try std.testing.expectEqualStrings("first", &name);
+    try std.testing.expectEqualStrings("uno", &data);
 }
 
 test "wrong password fails cleanly without corruption" {
