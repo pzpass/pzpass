@@ -125,6 +125,25 @@ pub fn writeFile(
     try sub_dir.rename(tmp_name, sub_dir, file_name, io);
 }
 
+/// Deletes `base_dir_name/sub_dir_name/file_name`; a missing file is not an error.
+pub fn deleteFile(
+    io: std.Io,
+    base_dir_name: []const u8,
+    sub_dir_name: []const u8,
+    file_name: []const u8,
+) !void {
+    const base_dir = try std.Io.Dir.openDirAbsolute(io, base_dir_name, .{ .access_sub_paths = true });
+    defer base_dir.close(io);
+
+    const sub_dir = try base_dir.openDir(io, sub_dir_name, .{ .access_sub_paths = true });
+    defer sub_dir.close(io);
+
+    sub_dir.deleteFile(io, file_name) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
 test "default path" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;

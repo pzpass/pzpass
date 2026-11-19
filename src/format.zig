@@ -11,7 +11,37 @@ const Config = @import("config.zig").Config;
 const Vault = @import("vault.zig").Vault;
 const pzcrypt = @import("crypto.zig");
 
+const Hmac = std.crypto.auth.hmac.sha2.HmacSha256;
+
+/// HMAC-SHA256 over the serialized vault (everything before the MAC), keyed
+/// with a subkey of the vault key. Detects deleted, reordered, duplicated or
+/// altered entries without decrypting any of them.
+fn fileMac(vault_key: [Config.KEY_LEN]u8, body: []const u8) [Config.MAC_LEN]u8 {
+    var mac_key: [Hmac.key_length]u8 = undefined;
+    defer std.crypto.secureZero(u8, &mac_key);
+    Hmac.create(&mac_key, "pzpass v3 file mac", &vault_key);
+
+    var mac: [Hmac.mac_length]u8 = undefined;
+    Hmac.create(&mac, body, &mac_key);
+    return mac;
+}
+
+/// Checks the trailing MAC of a v3 file. Needs the unwrapped vault key.
+pub fn verifyMac(vault_key: [Config.KEY_LEN]u8, bytes: []const u8) !void {
+    if (bytes.len < Config.MAC_LEN) return error.VaultMacMismatch;
+    const body_len = bytes.len - Config.MAC_LEN;
+    const expected = fileMac(vault_key, bytes[0..body_len]);
+    const actual = bytes[body_len..][0..Config.MAC_LEN].*;
+    if (!std.crypto.timing_safe.eql([Config.MAC_LEN]u8, expected, actual)) {
+        return error.VaultMacMismatch;
+    }
+}
+
+/// Always writes the current format (`Config.VERSION`); older vaults are
+/// migrated in memory when they are opened.
 pub fn serializeVault(allocator: Allocator, vault: *Vault) ![]u8 {
+    if (vault.header.version != Config.VERSION) return error.UnsupportedVersion;
+
     var data = try std.ArrayList(u8).initCapacity(allocator, 1024);
     defer data.deinit(allocator);
 
@@ -30,12 +60,14 @@ pub fn serializeVault(allocator: Allocator, vault: *Vault) ![]u8 {
     try data.appendSlice(allocator, &vault.header.kek_nonce);
     try data.appendSlice(allocator, &vault.header.kek_ciphertext);
     try data.appendSlice(allocator, &vault.header.kek_tag);
+    try data.appendSlice(allocator, &vault.header.vault_id);
     std.mem.writeInt(usize, &buff, vault.entries.items.len, .little);
     try data.appendSlice(allocator, &buff);
     std.mem.writeInt(usize, &buff, vault.entries.items.len, .little);
     try data.appendSlice(allocator, &buff);
 
     for (vault.entries.items) |entry| {
+        try data.appendSlice(allocator, &entry.id);
         std.mem.writeInt(usize, &buff, entry.ciphertext_name.len, .little);
         try data.appendSlice(allocator, &buff);
         std.mem.writeInt(usize, &buff, entry.ciphertext_data.len, .little);
@@ -50,6 +82,9 @@ pub fn serializeVault(allocator: Allocator, vault: *Vault) ![]u8 {
         try data.appendSlice(allocator, &entry.tag_name);
         try data.appendSlice(allocator, &entry.tag_data);
     }
+
+    const mac = fileMac(vault.vault_key, data.items);
+    try data.appendSlice(allocator, &mac);
     return data.toOwnedSlice(allocator);
 }
 
@@ -83,28 +118,44 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
     var tag: [Config.TAG_LEN]u8 = undefined;
     try r.readSliceAll(&tag);
 
+    var vault_id = std.mem.zeroes([Config.ID_LEN]u8);
+    if (version >= 3) try r.readSliceAll(&vault_id);
+
     const entry_count = try r.takeInt(usize, .little);
     const contr_count = try r.takeInt(usize, .little);
     if (entry_count != contr_count) {
         return error.EntryCountNotMatch;
     }
 
+    // Bound the allocation below by what the file can actually hold.
+    const id_len: usize = if (version >= 3) Config.ID_LEN else 0;
+    const min_entry_size = id_len + 2 * @sizeOf(usize) + 2 * Config.NONCE_LEN + 2 * Config.TAG_LEN;
+    if (entry_count > r.bufferedLen() / min_entry_size) {
+        return error.InvalidEntryCount;
+    }
+
     vault.header = Vault.Header{
         .magic = magic,
         .version = version,
         .salt = salt,
-        .iterations = @intCast(iterations),
+        // Not yet authenticated: reject instead of truncating (or worse, in
+        // release builds without safety checks).
+        .iterations = std.math.cast(u32, iterations) orelse return error.InvalidHeader,
         .mem_cost = mem_cost,
-        .parallelism = @intCast(parallelism),
+        .parallelism = std.math.cast(u32, parallelism) orelse return error.InvalidHeader,
         .kek_nonce = nonce,
         .kek_ciphertext = kek_ciphertext,
         .kek_tag = tag,
+        .vault_id = vault_id,
     };
     vault.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, entry_count);
 
     const max_entry_size = 1 << 24;
 
     for (0..entry_count) |_| {
+        var entry_id = std.mem.zeroes([Config.ID_LEN]u8);
+        if (version >= 3) try r.readSliceAll(&entry_id);
+
         const name_len = try r.takeInt(usize, .little);
         const data_len = try r.takeInt(usize, .little);
 
@@ -133,6 +184,7 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
         try r.readSliceAll(&tag_data);
 
         const entry: Vault.Entry = .{
+            .id = entry_id,
             .nonce_name = nonce_name,
             .nonce_data = nonce_data,
             .ciphertext_name = ciphertext_name,
@@ -145,6 +197,10 @@ pub fn deserializeVault(allocator: Allocator, vault: *Vault, bytes: []const u8) 
     }
     if (vault.entries.items.len != entry_count) {
         return error.RecoveredVaultEntriesSizeNotMatch;
+    }
+    // v3: exactly the MAC must remain (it is checked once the key is unwrapped).
+    if (version >= 3 and r.bufferedLen() != Config.MAC_LEN) {
+        return error.InvalidVaultSize;
     }
 }
 
@@ -209,8 +265,15 @@ test "serialize deserialize" {
     );
 
     try deserializeVault(allocator, vault_deserialized, vault_serialized);
+    try verifyMac(vault.vault_key, vault_serialized);
+
+    // Flipping any byte of the file breaks the MAC.
+    vault_serialized[vault_serialized.len / 2] ^= 1;
+    try std.testing.expectError(error.VaultMacMismatch, verifyMac(vault.vault_key, vault_serialized));
+    vault_serialized[vault_serialized.len / 2] ^= 1;
 
     try expectEqualSlices(u8, &vault_deserialized.header.magic, &MAGIC);
+    try expectEqualSlices(u8, &vault_deserialized.header.vault_id, &vault.header.vault_id);
     try expectEqualSlices(u8, &vault_deserialized.header.salt, &vault.header.salt);
     try expectEqualSlices(u8, &vault_deserialized.header.kek_ciphertext, &vault.header.kek_ciphertext);
     try expectEqualSlices(u8, &vault_deserialized.header.kek_nonce, &vault.header.kek_nonce);
@@ -220,6 +283,7 @@ test "serialize deserialize" {
     try expect(vault_deserialized.header.parallelism == vault.header.parallelism);
 
     for (vault.entries.items, vault_deserialized.entries.items) |entry, ff| {
+        try expectEqualSlices(u8, &entry.id, &ff.id);
         try expectEqualSlices(u8, &entry.nonce_name, &ff.nonce_name);
         try expectEqualSlices(u8, entry.ciphertext_name, ff.ciphertext_name);
         try expectEqualSlices(u8, &entry.tag_name, &ff.tag_name);
@@ -258,6 +322,7 @@ test "serialize deserialize" {
     try expect(vault_from_file.header.parallelism == vault.header.parallelism);
 
     for (vault.entries.items, vault_from_file.entries.items) |entry, ff| {
+        try expectEqualSlices(u8, &entry.id, &ff.id);
         try expectEqualSlices(u8, &entry.nonce_name, &ff.nonce_name);
         try expectEqualSlices(u8, entry.ciphertext_name, ff.ciphertext_name);
         try expectEqualSlices(u8, &entry.tag_name, &ff.tag_name);

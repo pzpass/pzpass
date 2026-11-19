@@ -134,11 +134,11 @@ User Password
                                             unique nonce per field)
 ```
 
-### Vault File Format (custom binary)
+### Vault File Format (custom binary, v3)
 
 ```
 [MAGIC "PZPASS" (6 bytes)]
-[VERSION (usize, LE)]
+[VERSION (usize, LE)]                    3 (v1/v2 files are migrated on open)
 [SALT (16 bytes)]
 [ITERATIONS (usize, LE)]
 [MEM_COST (u32, LE)]
@@ -146,9 +146,11 @@ User Password
 [KEK_NONCE (12 bytes)]
 [KEK_CIPHERTEXT (32 bytes)]
 [KEK_TAG (16 bytes)]
+[VAULT_ID (16 bytes)]                    v3 only
 [ENTRY_COUNT (usize, LE)]
 [ENTRY_COUNT duplicate (usize, LE)]
 For each entry:
+  [ENTRY_ID (16 bytes)]                  v3 only
   [NAME_LEN (usize, LE)]
   [DATA_LEN (usize, LE)]
   [NONCE_NAME (12 bytes)]
@@ -157,7 +159,15 @@ For each entry:
   [CIPHERTEXT_DATA (variable)]
   [TAG_NAME (16 bytes)]
   [TAG_DATA (16 bytes)]
+[FILE_MAC (32 bytes)]                    v3 only: HMAC-SHA256 over all bytes above
 ```
+
+Associated data (v3): the vault key is wrapped with version, Argon2 parameters, salt and
+vault id as AAD. Each entry's name and data are encrypted separately with
+`VAULT_ID ‖ ENTRY_ID ‖ 'n'` / `'d'` as AAD, so ciphertexts can't be swapped between
+entries or fields. The file MAC (keyed from the vault key) detects deleted, reordered or
+duplicated entries without decrypting any of them. Rolling back to an older, intact
+copy of the file is not detected.
 
 ---
 
@@ -166,7 +176,9 @@ For each entry:
 | Decision | Rationale |
 |----------|-----------|
 | **No external deps** | Minimizes attack surface and supply-chain risk |
-| **Vault key wrapping** | Changing master password re-wraps only the vault key (fast), not all entries |
+| **Vault key wrapping** | Entries are encrypted with a random vault key, wrapped by the password-derived key |
+| **Key rotation on password change** | Changing the master password generates a new vault key, re-encrypts every entry, and deletes the `.bak` on save, so the old password plus an old file copy can't open newer versions |
+| **Per-entry encryption** | Only the entry being viewed is decrypted; ids in the AAD and a file MAC protect the entry list |
 | **Unique nonces per field** | Each entry name + data gets its own random 12-byte nonce |
 | **Atomic file writes** | `.tmp` → rename → `.bak` pattern prevents vault corruption |
 | **Build-time dice list** | `words.txt` → `dicelist.zig` at compile time; no runtime file I/O |
