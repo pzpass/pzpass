@@ -36,12 +36,12 @@ pub fn run(init: std.process.Init) !void {
         .in = stdin,
     };
 
-    const home_dir = init.minimal.environ.getPosix("HOME") orelse return error.MissingHomeEnv;
-    const username = init.minimal.environ.getPosix("USER") orelse return error.MissingUserEnv;
     const args = try init.minimal.args.toSlice(allocator);
     defer allocator.free(args);
 
     if (args.len < 2) {
+        const home_dir = init.minimal.environ.getPosix("HOME") orelse return error.MissingHomeEnv;
+        const username = init.minimal.environ.getPosix("USER") orelse return error.MissingUserEnv;
         const vault_path = try allocator.print(
             "{s}.vault.dat",
             .{username},
@@ -65,11 +65,13 @@ pub fn run(init: std.process.Init) !void {
     } else if (std.mem.startsWith(u8, "password", cmd)) {
         try passwordgen.runPasswordGenerator(allocator, init.io, stdout, args);
     } else if (args.len > 2 and std.mem.eql(u8, "-f", cmd)) {
+        const home_dir = init.minimal.environ.getPosix("HOME") orelse return error.MissingHomeEnv;
         const file_name = if (args[2].len > 0) args[2] else return error.NoFileNameGiven;
         try interactive.run(allocator, init.io, prompt_options, home_dir, ".pzpass", file_name);
         return;
     } else {
         try printUsage();
+        std.process.exit(2);
     }
 
     try stdout.flush();

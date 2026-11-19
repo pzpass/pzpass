@@ -11,6 +11,7 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
+const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 const posix = std.posix;
 var keep_running = std.atomic.Value(bool).init(true);
@@ -54,16 +55,41 @@ pub fn run(
     try out.flush();
 
     try termios.set_terminal_password(original_termios);
-    const user_password = try takeDelimiter(out, in, '\n');
+    const typed_password = (try takeDelimiter(out, in, '\n')) orelse return error.NullPassword;
+
+    // Copy out of the stdin buffer: reading the confirmation line would overwrite it.
+    const password = try allocator.alignedAlloc(u8, alignment, typed_password.len);
+    try pzcrypt.mlockSlice(password);
+    defer {
+        pzcrypt.zeroAndMunlock(password);
+        if (password.len != 0) allocator.rawFree(password, alignment, std.heap.page_size_min);
+    }
+    @memcpy(password, typed_password);
+    std.crypto.secureZero(u8, typed_password);
+
+    const vault_path = try allocator.print("{s}/{s}/{s}", .{ base_dir_name, sub_dir_name, file_name });
+    defer allocator.free(vault_path);
+
+    const is_new_vault = if (std.Io.Dir.accessAbsolute(io, vault_path, .{})) |_| false else |err| switch (err) {
+        error.FileNotFound => true,
+        else => return err,
+    };
+
+    if (is_new_vault) {
+        // A typo here would otherwise become the password of the new vault.
+        try out.print("\nNo vault at {s}, creating a new one.\n", .{vault_path});
+        try out.writeAll("\x1b[33mConfirm password:\x1b[0m ");
+        try out.flush();
+        const confirmation = (try takeDelimiter(out, in, '\n')) orelse return error.NullPassword;
+        defer std.crypto.secureZero(u8, confirmation);
+        if (!std.mem.eql(u8, password, confirmation)) return error.PasswordMismatch;
+    }
 
     try flushInput(out, in);
     try termios.reset_terminal(original_termios);
     try termios.set_terminal(original_termios);
 
     try out.writeAll("\n");
-
-    const password = user_password orelse return error.NullPassword;
-    defer std.crypto.secureZero(u8, password);
 
     var vault = try Vault.init(
         allocator,

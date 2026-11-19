@@ -65,7 +65,8 @@ pub fn build(b: *std.Build) void {
         .name = "dice_list_gen",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/dicelist_generator.zig"),
-            .target = target,
+            // Runs on the build machine, so it must target the host even when cross-compiling.
+            .target = b.graph.host,
             .optimize = optimize,
         }),
     });
@@ -85,7 +86,7 @@ pub fn build(b: *std.Build) void {
         .name = "clean_up",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/clean_helper.zig"),
-            .target = target,
+            .target = b.graph.host,
             .optimize = optimize,
         }),
     });
