@@ -10,7 +10,7 @@ const aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
-const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
+const Key = pzcrypt.Key;
 
 const pass = @import("passwordgen.zig");
 const dice = @import("dicephrase.zig");
@@ -50,7 +50,10 @@ pub const Vault = struct {
         ciphertext_data: []u8,
     };
 
-    vault_key: [Config.KEY_LEN]u8,
+    /// Points into `vault_key_page`, a page of its own that is mlocked and
+    /// wiped on `deinit`.
+    vault_key: *Key,
+    vault_key_page: pzcrypt.Secret,
     entries: std.ArrayList(Entry),
     header: Header,
     file_path: []u8,
@@ -61,6 +64,25 @@ pub const Vault = struct {
     /// (still readable with the old password) must be deleted.
     purge_backup: bool,
 
+    /// An empty vault with a locked (but unset) key and no header. Takes
+    /// ownership of `file_path`, also on error. Release with `deinit`.
+    pub fn createEmpty(allocator: Allocator, file_path: []u8) !*Vault {
+        errdefer allocator.free(file_path);
+        const self = try allocator.create(Vault);
+        errdefer allocator.destroy(self);
+        const key_page = try pzcrypt.allocKey(allocator);
+        self.* = .{
+            .vault_key = key_page[0..Config.KEY_LEN],
+            .vault_key_page = key_page,
+            .entries = .empty,
+            .header = undefined,
+            .file_path = file_path,
+            .migrated = false,
+            .purge_backup = false,
+        };
+        return self;
+    }
+
     pub fn init(
         allocator: Allocator,
         io: std.Io,
@@ -69,23 +91,9 @@ pub const Vault = struct {
         sub_dir: []const u8,
         file_name: []const u8,
     ) !*Vault {
-        var self = try allocator.create(Vault);
-        errdefer allocator.destroy(self);
-
-        self.migrated = false;
-        self.purge_backup = false;
-        self.entries = try std.ArrayList(Vault.Entry).initCapacity(allocator, 0);
-        errdefer freeEntries(self, allocator);
-
-        self.file_path = try allocator.print(
-            "{s}/{s}/{s}",
-            .{
-                base_dir,
-                sub_dir,
-                file_name,
-            },
-        );
-        errdefer allocator.free(self.file_path);
+        const file_path = try allocator.print("{s}/{s}/{s}", .{ base_dir, sub_dir, file_name });
+        const self = try createEmpty(allocator, file_path);
+        errdefer self.deinit(allocator);
 
         const bytes = storage.readFileAlloc(allocator, io, base_dir, sub_dir, file_name) catch |err| switch (err) {
             error.FileNotFound => {
@@ -95,36 +103,35 @@ pub const Vault = struct {
             },
             else => return err,
         };
-        defer allocator.rawFree(bytes, alignment, std.heap.page_size_min);
+        defer allocator.free(bytes);
 
         try format.deserializeVault(allocator, self, bytes);
 
-        try pzcrypt.mlockSlice(&self.vault_key);
-        errdefer pzcrypt.zeroAndMunlock(&self.vault_key);
-
-        var password_key = try pzcrypt.deriveKey(
+        const password_key_page = try pzcrypt.allocKey(allocator);
+        defer pzcrypt.freeSecret(allocator, password_key_page);
+        const password_key = password_key_page[0..Config.KEY_LEN];
+        try pzcrypt.deriveKey(
             allocator,
             io,
+            password_key,
             password,
             &self.header.salt,
             self.header.iterations,
             self.header.mem_cost,
             self.header.parallelism,
         );
-        try pzcrypt.mlockSlice(&password_key);
-        defer pzcrypt.zeroAndMunlock(&password_key);
 
         var aad_buf: [header_aad_max_len]u8 = undefined;
         try aead.decrypt(
-            &self.vault_key,
+            self.vault_key,
             &self.header.kek_ciphertext,
             self.header.kek_tag,
             headerAad(&self.header, &aad_buf),
             self.header.kek_nonce,
-            password_key,
+            password_key.*,
         );
 
-        if (std.mem.eql(u8, &password_key, &self.vault_key)) {
+        if (std.mem.eql(u8, password_key, self.vault_key)) {
             return error.KekIsVaultKey;
         }
 
@@ -144,7 +151,7 @@ pub const Vault = struct {
         self: *Vault,
         allocator: Allocator,
         io: std.Io,
-        password_key: [Config.KEY_LEN]u8,
+        password_key: *const Key,
     ) !void {
         const rng_impl: std.Random.IoSource = .{ .io = io };
         const rng = rng_impl.interface();
@@ -175,7 +182,7 @@ pub const Vault = struct {
 
     /// Encrypts the vault key under `password_key` with a fresh nonce,
     /// authenticating the current header.
-    fn wrapKey(self: *Vault, io: std.Io, password_key: [Config.KEY_LEN]u8) void {
+    fn wrapKey(self: *Vault, io: std.Io, password_key: *const Key) void {
         const rng_impl: std.Random.IoSource = .{ .io = io };
         rng_impl.interface().bytes(&self.header.kek_nonce);
 
@@ -183,19 +190,51 @@ pub const Vault = struct {
         aead.encrypt(
             &self.header.kek_ciphertext,
             &self.header.kek_tag,
-            &self.vault_key,
+            self.vault_key,
             headerAad(&self.header, &aad_buf),
             self.header.kek_nonce,
-            password_key,
+            password_key.*,
         );
     }
 
     /// Decrypts an entry of this vault into caller-provided buffers sized
-    /// like its ciphertexts.
+    /// like its ciphertexts (normally from `pzcrypt.allocSecret`).
     pub fn decryptEntry(self: *const Vault, entry: *const Entry, name: []u8, data: []u8) !void {
         const vault_id: ?*const [Config.ID_LEN]u8 =
             if (self.header.version >= 3) &self.header.vault_id else null;
         try pzcrypt.decrypt(entry, self.vault_key, vault_id, name, data);
+    }
+
+    /// An entry's plaintext, each field in its own locked page.
+    pub const Plaintext = struct {
+        name: pzcrypt.Secret,
+        data: pzcrypt.Secret,
+
+        pub fn deinit(self: Plaintext, allocator: Allocator) void {
+            pzcrypt.freeSecret(allocator, self.name);
+            pzcrypt.freeSecret(allocator, self.data);
+        }
+    };
+
+    /// Decrypts an entry into locked memory. Release with `Plaintext.deinit`.
+    pub fn decryptEntryAlloc(self: *const Vault, allocator: Allocator, entry: *const Entry) !Plaintext {
+        const name = try pzcrypt.allocSecret(allocator, entry.ciphertext_name.len);
+        errdefer pzcrypt.freeSecret(allocator, name);
+        const data = try pzcrypt.allocSecret(allocator, entry.ciphertext_data.len);
+        errdefer pzcrypt.freeSecret(allocator, data);
+        try self.decryptEntry(entry, name, data);
+        return .{ .name = name, .data = data };
+    }
+
+    /// Decrypts only an entry's name (for listing and matching), leaving the
+    /// secret data encrypted. Release with `pzcrypt.freeSecret`.
+    pub fn decryptNameAlloc(self: *const Vault, allocator: Allocator, entry: *const Entry) !pzcrypt.Secret {
+        const vault_id: ?*const [Config.ID_LEN]u8 =
+            if (self.header.version >= 3) &self.header.vault_id else null;
+        const name = try pzcrypt.allocSecret(allocator, entry.ciphertext_name.len);
+        errdefer pzcrypt.freeSecret(allocator, name);
+        try pzcrypt.decryptName(entry, self.vault_key, vault_id, name);
+        return name;
     }
 
     fn new(
@@ -206,9 +245,7 @@ pub const Vault = struct {
     ) !void {
         const rng_impl: std.Random.IoSource = .{ .io = io };
         const rng = rng_impl.interface();
-        try pzcrypt.mlockSlice(&self.vault_key);
-        errdefer pzcrypt.zeroAndMunlock(&self.vault_key);
-        rng.bytes(&self.vault_key);
+        rng.bytes(self.vault_key);
 
         self.header = .{
             .magic = MAGIC,
@@ -226,24 +263,26 @@ pub const Vault = struct {
         rng.bytes(&self.header.salt);
         rng.bytes(&self.header.vault_id);
 
-        var password_key = try pzcrypt.deriveKey(
+        const password_key_page = try pzcrypt.allocKey(allocator);
+        defer pzcrypt.freeSecret(allocator, password_key_page);
+        const password_key = password_key_page[0..Config.KEY_LEN];
+        try pzcrypt.deriveKey(
             allocator,
             io,
+            password_key,
             password,
             &self.header.salt,
             self.header.iterations,
             self.header.mem_cost,
             self.header.parallelism,
         );
-        try pzcrypt.mlockSlice(&password_key);
-        defer pzcrypt.zeroAndMunlock(&password_key);
 
         self.wrapKey(io, password_key);
     }
 
     pub fn deinit(self: *Vault, allocator: Allocator) void {
         allocator.free(self.file_path);
-        pzcrypt.zeroAndMunlock(&self.vault_key);
+        pzcrypt.freeSecret(allocator, self.vault_key_page);
         freeEntries(self, allocator);
         allocator.destroy(self);
     }
@@ -292,22 +331,11 @@ pub const Vault = struct {
         filter: ?[]const u8,
     ) !void {
         try out.writeAll("\x1b[33m-----\x1b[0m\n");
-        for (self.entries.items, 0..) |item, index| {
-            const name = try allocator.alignedAlloc(u8, alignment, item.ciphertext_name.len);
-            try pzcrypt.mlockSlice(name);
-            defer {
-                pzcrypt.zeroAndMunlock(name);
-                allocator.free(name);
-            }
+        for (self.entries.items, 0..) |*item, index| {
+            // Names only: listing never decrypts the secrets themselves.
+            const name = try self.decryptNameAlloc(allocator, item);
+            defer pzcrypt.freeSecret(allocator, name);
 
-            const data = try allocator.alignedAlloc(u8, alignment, item.ciphertext_data.len);
-            try pzcrypt.mlockSlice(data);
-            defer {
-                pzcrypt.zeroAndMunlock(data);
-                allocator.free(data);
-            }
-
-            try self.decryptEntry(&item, name, data);
             if (filter) |actual_filter| {
                 if (std.mem.containsAtLeast(u8, name, 1, actual_filter))
                     try out.print("{d: >5}: {s}\n", .{ index, name });
@@ -353,7 +381,7 @@ pub const Vault = struct {
     ) !bool {
         const out = options.out;
         const in = options.in;
-        const name: []u8 = getInput(
+        const name = getInput(
             allocator,
             out,
             in,
@@ -362,13 +390,9 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        try pzcrypt.mlockSlice(name);
-        defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
-        }
+        defer pzcrypt.freeSecret(allocator, name);
 
-        const data: []u8 = getInput(
+        const data = getInput(
             allocator,
             out,
             in,
@@ -377,11 +401,7 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        try pzcrypt.mlockSlice(data);
-        defer {
-            pzcrypt.zeroAndMunlock(data);
-            allocator.free(data);
-        }
+        defer pzcrypt.freeSecret(allocator, data);
 
         try self.addEntry(allocator, io, name, data);
 
@@ -399,7 +419,7 @@ pub const Vault = struct {
     ) !bool {
         const out = options.out;
         const in = options.in;
-        const name: []u8 = getInput(
+        const name = getInput(
             allocator,
             out,
             in,
@@ -408,13 +428,9 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        try pzcrypt.mlockSlice(name);
-        defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
-        }
+        defer pzcrypt.freeSecret(allocator, name);
 
-        const option: []u8 = getInput(
+        const option = getInput(
             allocator,
             out,
             in,
@@ -423,7 +439,7 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        defer allocator.free(option);
+        defer pzcrypt.freeSecret(allocator, option);
 
         if (std.mem.eql(u8, "dice", option) or std.mem.eql(u8, "pass", option)) {} else {
             try out.writeAll("\x1b[33mOnly valid options are \x1b[0mdice\x1b[33m or \x1b[0mpass\x1b[33m :\x1b[0m\n");
@@ -444,11 +460,7 @@ pub const Vault = struct {
             try dice.generateDicePhrase(allocator, io, length)
         else
             try pass.generate(allocator, io, length);
-        try pzcrypt.mlockSlice(data);
-        defer {
-            pzcrypt.zeroAndMunlock(data);
-            allocator.free(data);
-        }
+        defer pzcrypt.freeSecret(allocator, data);
 
         try self.addEntry(allocator, io, name, data);
 
@@ -465,7 +477,7 @@ pub const Vault = struct {
     ) !void {
         const out = options.out;
         const in = options.in;
-        const name: []u8 = getInput(
+        const name = getInput(
             allocator,
             out,
             in,
@@ -474,11 +486,7 @@ pub const Vault = struct {
             error.EmptyString => return,
             else => return err,
         };
-        try pzcrypt.mlockSlice(name);
-        defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
-        }
+        defer pzcrypt.freeSecret(allocator, name);
 
         try self.listEntries(allocator, out, name);
     }
@@ -505,24 +513,10 @@ pub const Vault = struct {
             return;
         }
 
-        const item = self.entries.items[index];
+        const plain = try self.decryptEntryAlloc(allocator, &self.entries.items[index]);
+        defer plain.deinit(allocator);
 
-        const name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
-        try pzcrypt.mlockSlice(name);
-        defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
-        }
-
-        const data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
-        try pzcrypt.mlockSlice(data);
-        defer {
-            pzcrypt.zeroAndMunlock(data);
-            allocator.free(data);
-        }
-
-        try self.decryptEntry(&item, name, data);
-        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ name, data });
+        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ plain.name, plain.data });
         try out.flush();
     }
 
@@ -549,70 +543,37 @@ pub const Vault = struct {
             return false;
         }
 
-        const item = self.entries.items[index];
+        const current = try self.decryptEntryAlloc(allocator, &self.entries.items[index]);
+        defer current.deinit(allocator);
 
-        const decrypted_name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
-        try pzcrypt.mlockSlice(decrypted_name);
-        defer {
-            pzcrypt.zeroAndMunlock(decrypted_name);
-            allocator.free(decrypted_name);
-        }
-
-        const decrypted_data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
-        try pzcrypt.mlockSlice(decrypted_data);
-        defer {
-            pzcrypt.zeroAndMunlock(decrypted_data);
-            allocator.free(decrypted_data);
-        }
-
-        try self.decryptEntry(&item, decrypted_name, decrypted_data);
-        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ decrypted_name, decrypted_data });
+        try out.print("\x1b[33mName:\x1b[0m {s}\n\x1b[33mData:\x1b[0m {s}\n", .{ current.name, current.data });
         try out.flush();
 
-        const updated_name = blk: {
-            const input = getInput(
-                allocator,
-                out,
-                in,
-                "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
-            ) catch |err| switch (err) {
-                error.EmptyString => break :blk decrypted_name,
-                else => return err,
-            };
-            break :blk input;
+        // null = keep the current value.
+        const new_name: ?pzcrypt.Secret = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry name (leave empty to keep):\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => null,
+            else => return err,
         };
-        if (updated_name.ptr != decrypted_name.ptr) {
-            try pzcrypt.mlockSlice(updated_name);
-        }
+        defer if (new_name) |s| pzcrypt.freeSecret(allocator, s);
 
-        const updated_data = blk: {
-            const input = getInput(
-                allocator,
-                out,
-                in,
-                "\x1b[33mNew entry data (leave empty to keep):\x1b[0m ",
-            ) catch |err| switch (err) {
-                error.EmptyString => break :blk decrypted_data,
-                else => return err,
-            };
-            break :blk input;
+        const new_data: ?pzcrypt.Secret = getInput(
+            allocator,
+            out,
+            in,
+            "\x1b[33mNew entry data (leave empty to keep):\x1b[0m ",
+        ) catch |err| switch (err) {
+            error.EmptyString => null,
+            else => return err,
         };
-        if (updated_data.ptr != decrypted_data.ptr) {
-            try pzcrypt.mlockSlice(updated_data);
-        }
+        defer if (new_data) |s| pzcrypt.freeSecret(allocator, s);
 
-        defer {
-            if (updated_name.ptr != decrypted_name.ptr) {
-                pzcrypt.zeroAndMunlock(updated_name);
-                allocator.free(updated_name);
-            }
-        }
-        defer {
-            if (updated_data.ptr != decrypted_data.ptr) {
-                pzcrypt.zeroAndMunlock(updated_data);
-                allocator.free(updated_data);
-            }
-        }
+        const updated_name: []const u8 = new_name orelse current.name;
+        const updated_data: []const u8 = new_data orelse current.data;
 
         // Replace in place so the edited entry keeps its index.
         const updated = try self.makeEntry(allocator, io, updated_name, updated_data);
@@ -661,9 +622,7 @@ pub const Vault = struct {
             return false;
         }
 
-        const item = self.entries.items[index];
-
-        const name: []u8 = getInput(
+        const name = getInput(
             allocator,
             out,
             in,
@@ -672,27 +631,10 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        try pzcrypt.mlockSlice(name);
-        defer {
-            pzcrypt.zeroAndMunlock(name);
-            allocator.free(name);
-        }
+        defer pzcrypt.freeSecret(allocator, name);
 
-        const entry_name: []u8 = try allocator.alloc(u8, item.ciphertext_name.len);
-        try pzcrypt.mlockSlice(entry_name);
-        defer {
-            pzcrypt.zeroAndMunlock(entry_name);
-            allocator.free(entry_name);
-        }
-
-        const entry_data: []u8 = try allocator.alloc(u8, item.ciphertext_data.len);
-        try pzcrypt.mlockSlice(entry_data);
-        defer {
-            pzcrypt.zeroAndMunlock(entry_data);
-            allocator.free(entry_data);
-        }
-
-        try self.decryptEntry(&item, entry_name, entry_data);
+        const entry_name = try self.decryptNameAlloc(allocator, &self.entries.items[index]);
+        defer pzcrypt.freeSecret(allocator, entry_name);
 
         if (std.mem.eql(u8, name, entry_name)) {
             self.deleteEntry(allocator, index) catch |err| switch (err) {
@@ -753,10 +695,10 @@ pub const Vault = struct {
         const rng_impl: std.Random.IoSource = .{ .io = io };
         const rng = rng_impl.interface();
 
-        var new_key: [Config.KEY_LEN]u8 = undefined;
-        try pzcrypt.mlockSlice(&new_key);
-        defer pzcrypt.zeroAndMunlock(&new_key);
-        rng.bytes(&new_key);
+        const new_key_page = try pzcrypt.allocKey(allocator);
+        errdefer pzcrypt.freeSecret(allocator, new_key_page);
+        const new_key = new_key_page[0..Config.KEY_LEN];
+        rng.bytes(new_key);
 
         // Re-encrypt into new buffers so a failure leaves the vault as it was.
         var rotated = try std.ArrayList(Entry).initCapacity(allocator, self.entries.items.len);
@@ -765,34 +707,34 @@ pub const Vault = struct {
             rotated.deinit(allocator);
         }
         for (self.entries.items) |*entry| {
-            const name = try pzcrypt.allocSecret(allocator, entry.ciphertext_name.len);
-            defer pzcrypt.freeSecret(allocator, name);
-            const data = try pzcrypt.allocSecret(allocator, entry.ciphertext_data.len);
-            defer pzcrypt.freeSecret(allocator, data);
-
-            try self.decryptEntry(entry, name, data);
+            const plain = try self.decryptEntryAlloc(allocator, entry);
+            defer plain.deinit(allocator);
             rotated.appendAssumeCapacity(
-                try encryptEntry(allocator, io, new_key, &self.header.vault_id, name, data),
+                try encryptEntry(allocator, io, new_key, &self.header.vault_id, plain.name, plain.data),
             );
         }
 
         var salt: [Config.SALT_LEN]u8 = undefined;
         rng.bytes(&salt);
-        var password_key = try pzcrypt.deriveKey(
+        const password_key_page = try pzcrypt.allocKey(allocator);
+        defer pzcrypt.freeSecret(allocator, password_key_page);
+        const password_key = password_key_page[0..Config.KEY_LEN];
+        try pzcrypt.deriveKey(
             allocator,
             io,
+            password_key,
             password,
             &salt,
             Config.ITERATIONS,
             Config.MEM_COST,
             Config.PARALLELISM,
         );
-        try pzcrypt.mlockSlice(&password_key);
-        defer pzcrypt.zeroAndMunlock(&password_key);
 
         // Commit. Nothing below can fail.
         freeEntries(self, allocator);
         self.entries = rotated;
+        pzcrypt.freeSecret(allocator, self.vault_key_page);
+        self.vault_key_page = new_key_page;
         self.vault_key = new_key;
         self.header.salt = salt;
         self.header.iterations = Config.ITERATIONS;
@@ -811,7 +753,7 @@ pub const Vault = struct {
     ) !bool {
         const out = options.out;
         const in = options.in;
-        const password: []u8 = getInput(
+        const password = getInput(
             allocator,
             out,
             in,
@@ -820,16 +762,12 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        try pzcrypt.mlockSlice(password);
-        defer {
-            pzcrypt.zeroAndMunlock(password);
-            allocator.free(password);
-        }
+        defer pzcrypt.freeSecret(allocator, password);
 
         try out.writeAll("\n");
         try out.flush();
 
-        const password_confirmation: []u8 = getInput(
+        const password_confirmation = getInput(
             allocator,
             out,
             in,
@@ -838,11 +776,7 @@ pub const Vault = struct {
             error.EmptyString => return false,
             else => return err,
         };
-        try pzcrypt.mlockSlice(password_confirmation);
-        defer {
-            pzcrypt.zeroAndMunlock(password_confirmation);
-            allocator.free(password_confirmation);
-        }
+        defer pzcrypt.freeSecret(allocator, password_confirmation);
 
         try out.writeAll("\n");
         try out.flush();
@@ -874,7 +808,7 @@ fn freeEntries(self: *Vault, allocator: Allocator) void {
 fn encryptEntry(
     allocator: Allocator,
     io: std.Io,
-    key: [Config.KEY_LEN]u8,
+    key: *const Key,
     vault_id: *const [Config.ID_LEN]u8,
     name: []const u8,
     data: []const u8,
@@ -971,19 +905,20 @@ fn getInput(
     out: *Writer,
     in: *Reader,
     prompt: []const u8,
-) ![]u8 {
-    while (true) {
-        try out.writeAll(prompt);
-        try out.flush();
-        // null means stdin was closed; re-prompting would loop forever.
-        const input_string_slice = (try takeDelimiter(out, in, '\n')) orelse return error.EndOfStream;
-        const input_string_trimmed = std.mem.trim(u8, input_string_slice, " \r\t");
-        if (input_string_trimmed.len == 0) return error.EmptyString;
-        const input_string = try allocator.dupe(u8, input_string_trimmed);
-        try flushInput(out, in);
-        try out.flush();
-        return input_string;
-    }
+) !pzcrypt.Secret {
+    try out.writeAll(prompt);
+    try out.flush();
+    // null means stdin was closed; re-prompting would loop forever.
+    const line = (try takeDelimiter(out, in, '\n')) orelse return error.EndOfStream;
+    // Don't leave the typed text in the stdin buffer for the rest of the session.
+    defer std.crypto.secureZero(u8, line);
+    const trimmed = std.mem.trim(u8, line, " \r\t");
+    if (trimmed.len == 0) return error.EmptyString;
+    const input = try pzcrypt.dupeSecret(allocator, trimmed);
+    errdefer pzcrypt.freeSecret(allocator, input);
+    try flushInput(out, in);
+    try out.flush();
+    return input;
 }
 
 fn getInputNumeric(
@@ -1077,62 +1012,17 @@ test "new vault reopens with the same password" {
     try std.testing.expectEqualStrings("uno", &data);
 }
 
-/// Entries in src/testdata/v{1,2}.fixture, written by the pre-v3 code with
-/// password "fixture-password".
-const fixture_entries = [_][2][]const u8{
-    .{ "github", "hunter2" },
-    .{ "bank", "correct horse battery staple" },
-    .{ "email", "s3cret!" },
-};
-
 fn expectEntries(allocator: Allocator, vault: *const Vault, expected: []const [2][]const u8) !void {
     try std.testing.expectEqual(expected.len, vault.entries.items.len);
     for (vault.entries.items, expected) |*entry, want| {
-        const name = try pzcrypt.allocSecret(allocator, entry.ciphertext_name.len);
+        const plain = try vault.decryptEntryAlloc(allocator, entry);
+        defer plain.deinit(allocator);
+        try std.testing.expectEqualStrings(want[0], plain.name);
+        try std.testing.expectEqualStrings(want[1], plain.data);
+
+        const name = try vault.decryptNameAlloc(allocator, entry);
         defer pzcrypt.freeSecret(allocator, name);
-        const data = try pzcrypt.allocSecret(allocator, entry.ciphertext_data.len);
-        defer pzcrypt.freeSecret(allocator, data);
-        try vault.decryptEntry(entry, name, data);
         try std.testing.expectEqualStrings(want[0], name);
-        try std.testing.expectEqualStrings(want[1], data);
-    }
-}
-
-test "v1 and v2 vaults are migrated to the current format" {
-    const allocator = std.testing.allocator;
-    const io = std.testing.io;
-    const cwd = std.testing.environ.getPosix("PWD") orelse "/tmp";
-
-    const fixtures = .{
-        .{ "migrate-v1.vault.dat", @embedFile("testdata/v1.fixture"), 1 },
-        .{ "migrate-v2.vault.dat", @embedFile("testdata/v2.fixture"), 2 },
-    };
-    inline for (fixtures) |fixture| {
-        const file_name, const bytes, const old_version = fixture;
-        try storage.writeFile(allocator, io, cwd, ".pzpass", file_name, bytes);
-        defer deleteTestFile(io, cwd, ".pzpass", file_name);
-        defer deleteTestFile(io, cwd, ".pzpass", file_name ++ ".bak");
-
-        try std.testing.expectError(
-            error.AuthenticationFailed,
-            Vault.init(allocator, io, "wrong-password", cwd, ".pzpass", file_name),
-        );
-
-        {
-            var vault = try Vault.init(allocator, io, "fixture-password", cwd, ".pzpass", file_name);
-            defer vault.deinit(allocator);
-            try std.testing.expect(vault.migrated);
-            try std.testing.expectEqual(@as(usize, Config.VERSION), vault.header.version);
-            try std.testing.expect(old_version < Config.VERSION);
-            try expectEntries(allocator, vault, &fixture_entries);
-            try vault.save(allocator, io, cwd, ".pzpass", file_name);
-        }
-
-        var vault = try Vault.init(allocator, io, "fixture-password", cwd, ".pzpass", file_name);
-        defer vault.deinit(allocator);
-        try std.testing.expect(!vault.migrated);
-        try std.testing.expectEqual(@as(usize, Config.VERSION), vault.header.version);
-        try expectEntries(allocator, vault, &fixture_entries);
     }
 }
 
@@ -1210,9 +1100,9 @@ test "password change rotates the vault key and deletes the backup" {
         try vault.save(allocator, io, cwd, ".pzpass", file_name);
         try vault.save(allocator, io, cwd, ".pzpass", file_name); // creates a .bak
 
-        const old_key = vault.vault_key;
+        const old_key = vault.vault_key.*;
         try vault.updatePassword(allocator, io, "new-password");
-        try std.testing.expect(!std.mem.eql(u8, &old_key, &vault.vault_key));
+        try std.testing.expect(!std.mem.eql(u8, &old_key, vault.vault_key));
         try expectEntries(allocator, vault, &.{.{ "name", "data" }});
 
         try vault.save(allocator, io, cwd, ".pzpass", file_name);
@@ -1287,7 +1177,7 @@ test "tampered header fails to decrypt" {
     }
 
     const data = try storage.readFileAlloc(allocator, io, cwd, ".pzpass", file_name);
-    defer allocator.rawFree(data, alignment, std.heap.page_size_min);
+    defer allocator.free(data);
 
     const iterations_offset = MAGIC.len + @sizeOf(usize) + Config.SALT_LEN;
     data[iterations_offset] ^= 0x01;

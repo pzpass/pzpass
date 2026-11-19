@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 pub const VaultPath = struct {
     vault_dir: []const u8,
@@ -66,7 +65,9 @@ pub fn readFileAlloc(
         return error.EmptyVault;
     }
 
-    const data_from_file = try allocator.alignedAlloc(u8, alignment, file_metadata.size);
+    // Ciphertext only, so an ordinary allocation; release with `allocator.free`.
+    const data_from_file = try allocator.alloc(u8, file_metadata.size);
+    errdefer allocator.free(data_from_file);
     const bytes_read = try file.readPositionalAll(io, data_from_file, 0);
     if (bytes_read != data_from_file.len) return error.UnexpectedEndOfFile;
     return data_from_file;

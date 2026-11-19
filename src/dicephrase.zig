@@ -4,7 +4,6 @@ const termios = @import("termios.zig");
 const words = @import("dicelist.zig").dice_words;
 
 const Allocator = std.mem.Allocator;
-const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 pub fn runPassphraseGenerator(
     allocator: Allocator,
@@ -24,10 +23,7 @@ pub fn runPassphraseGenerator(
         try termios.set_terminal(original_termios);
 
         const dicephrase = try generateDicePhrase(allocator, io, word_count);
-        defer {
-            std.crypto.secureZero(u8, dicephrase);
-            allocator.rawFree(dicephrase, alignment, std.heap.page_size_min);
-        }
+        defer pzcrypt.freeSecret(allocator, dicephrase);
         try out.print("{s}\n", .{dicephrase});
         try out.flush();
 
@@ -43,32 +39,35 @@ pub fn generateDicePhrase(
     allocator: Allocator,
     io: std.Io,
     word_count: usize,
-) ![]u8 {
+) !pzcrypt.Secret {
     if (words.len < 7776)
         return error.InvalidWordList;
 
     const rng_impl: std.Random.IoSource = .{ .io = io };
     const rng = rng_impl.interface();
 
-    var selected = try std.ArrayList([]const u8).initCapacity(allocator, word_count);
-    defer selected.deinit(allocator);
+    var longest: usize = 0;
+    for (0..words.len) |i| longest = @max(longest, (try words.get(i)).len);
 
-    for (0..word_count) |_| {
-        const index = rng.intRangeLessThan(usize, 0, words.len);
+    // Build the phrase in a locked buffer big enough for any choice of words,
+    // then copy it to an exact-size one. (The previous version kept the chosen
+    // words in an unlocked list and joined them in unlocked memory.)
+    const capacity = try std.math.mul(usize, word_count, longest + 1);
+    const scratch = try pzcrypt.allocSecret(allocator, capacity);
+    defer pzcrypt.freeSecret(allocator, scratch);
 
-        try selected.append(allocator, try words.get(index));
+    var len: usize = 0;
+    for (0..word_count) |i| {
+        if (i != 0) {
+            scratch[len] = '-';
+            len += 1;
+        }
+        const word = try words.get(rng.intRangeLessThan(usize, 0, words.len));
+        @memcpy(scratch[len..][0..word.len], word);
+        len += word.len;
     }
 
-    const passphrase = try std.mem.join(allocator, "-", selected.items);
-    defer {
-        std.crypto.secureZero(u8, passphrase);
-        allocator.free(passphrase);
-    }
-
-    const result = try allocator.alignedAlloc(u8, alignment, passphrase.len);
-    @memcpy(result, passphrase);
-
-    return result;
+    return pzcrypt.dupeSecret(allocator, scratch[0..len]);
 }
 
 test "generated prase word count" {
@@ -76,9 +75,12 @@ test "generated prase word count" {
     const io = std.testing.io;
 
     const dicephrase = try generateDicePhrase(allocator, io, 5);
-    defer allocator.rawFree(dicephrase, alignment, std.heap.page_size_min);
+    defer pzcrypt.freeSecret(allocator, dicephrase);
 
     try std.testing.expect(dicephrase.len > 0);
+    try std.testing.expectEqual(@as(usize, 5), std.mem.count(u8, dicephrase, "-") + 1);
+    var it = std.mem.splitScalar(u8, dicephrase, '-');
+    while (it.next()) |word| try std.testing.expect(word.len > 0);
 }
 
 test "get first word" {

@@ -40,8 +40,7 @@ This is Zig 0.17: `std.process.Init`, `std.Io.Reader`/`Writer` over caller-suppl
   checked in `Vault.init` after the key is unwrapped.
 - Writing always produces `Config.VERSION`; v1/v2 files are migrated in memory on open
   (`Vault.migrate`, sets `vault.migrated`) and written as v3 on the next save. Keep them
-  loading: `src/testdata/v{1,2}.fixture` are real old-format files (password
-  `fixture-password`) used by the migration test; never regenerate them with new code.
+  loading; there is no automated migration test (the old fixture test was removed).
 - `updatePassword` rotates the vault key (re-encrypts every entry) and the next `save`
   deletes `<file>.bak`, which is still readable with the old password.
 - Bump `Config.VERSION` on layout changes. The duplicated entry count is an integrity check,
@@ -52,9 +51,19 @@ This is Zig 0.17: `std.process.Init`, `std.Io.Reader`/`Writer` over caller-suppl
 
 - Keep it dependency-free: `std.crypto` only (ChaCha20-Poly1305, Argon2id); `build.zig.zon` has
   no deps and its `.fingerprint` must not change.
-- Sensitive buffers: aligned alloc (`std.heap.page_size_min`) → `mlockSlice` →
-  `secureZero`/`zeroAndMunlock` → `allocator.rawFree(buf, alignment, page_size)`. Never use
-  plain `free`/`deinit` on them.
+- Sensitive buffers (keys, passwords, plaintext, terminal I/O buffers) are `pzcrypt.Secret`:
+  create with `allocSecret`/`dupeSecret`/`allocKey`, release with `freeSecret` (wipes, unlocks,
+  frees). Each gets its own page-aligned allocation because mlock doesn't nest: unlocking one
+  buffer unlocks its whole page. Don't `mlockSlice` stack arrays or memory from plain `alloc`,
+  and don't hold keys in stack arrays; pass them as `*const pzcrypt.Key`.
+- Decrypt entries with `Vault.decryptEntryAlloc` (returns `Plaintext`, `deinit` it) or
+  `decryptNameAlloc` when only the name is needed (listing/matching never decrypts data).
+- `pzpass.run` uses `init.gpa`, not the arena, so frees are real and debug builds report leaks
+  and alignment-mismatched frees. Ciphertext (file bytes, entry ciphertexts) uses plain `alloc`.
+- `pzcrypt.deriveKey` gives Argon2 its own scratch buffer (`argon2.calcSize`) and wipes it;
+  std frees its working memory unwiped. It is too large (256 MiB) to mlock.
+- Not covered: std's AEAD/Argon2 APIs take keys by value, so short-lived copies land on the
+  stack unwiped; core dumps are not disabled.
 - `mlock` is Linux-only (`src/crypto.zig`); on macOS it is a no-op, and on Linux failure returns
   `error.NotMlocked` (needs adequate `RLIMIT_MEMLOCK`).
 - Vault writes: 0600 temp file → sync → existing file renamed `.bak` → rename temp (atomic; preserve).

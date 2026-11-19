@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
@@ -16,10 +15,10 @@ const Hmac = std.crypto.auth.hmac.sha2.HmacSha256;
 /// HMAC-SHA256 over the serialized vault (everything before the MAC), keyed
 /// with a subkey of the vault key. Detects deleted, reordered, duplicated or
 /// altered entries without decrypting any of them.
-fn fileMac(vault_key: [Config.KEY_LEN]u8, body: []const u8) [Config.MAC_LEN]u8 {
+fn fileMac(vault_key: *const pzcrypt.Key, body: []const u8) [Config.MAC_LEN]u8 {
     var mac_key: [Hmac.key_length]u8 = undefined;
     defer std.crypto.secureZero(u8, &mac_key);
-    Hmac.create(&mac_key, "pzpass v3 file mac", &vault_key);
+    Hmac.create(&mac_key, "pzpass v3 file mac", vault_key);
 
     var mac: [Hmac.mac_length]u8 = undefined;
     Hmac.create(&mac, body, &mac_key);
@@ -27,7 +26,7 @@ fn fileMac(vault_key: [Config.KEY_LEN]u8, body: []const u8) [Config.MAC_LEN]u8 {
 }
 
 /// Checks the trailing MAC of a v3 file. Needs the unwrapped vault key.
-pub fn verifyMac(vault_key: [Config.KEY_LEN]u8, bytes: []const u8) !void {
+pub fn verifyMac(vault_key: *const pzcrypt.Key, bytes: []const u8) !void {
     if (bytes.len < Config.MAC_LEN) return error.VaultMacMismatch;
     const body_len = bytes.len - Config.MAC_LEN;
     const expected = fileMac(vault_key, bytes[0..body_len]);
@@ -231,20 +230,20 @@ test "serialize deserialize" {
 
     for (0..3) |_| {
         const name = try dice.generateDicePhrase(allocator, io, 20);
-        defer allocator.rawFree(name, alignment, std.heap.page_size_min);
+        defer pzcrypt.freeSecret(allocator, name);
 
         const data = try dice.generateDicePhrase(allocator, io, 50);
-        defer allocator.rawFree(data, alignment, std.heap.page_size_min);
+        defer pzcrypt.freeSecret(allocator, data);
 
         try vault.addEntry(allocator, io, name, data);
     }
 
     for (0..3) |_| {
         const name = try pass.generate(allocator, io, Vault.ENTRY_LEN);
-        defer allocator.rawFree(name, alignment, std.heap.page_size_min);
+        defer pzcrypt.freeSecret(allocator, name);
 
         const data = try pass.generate(allocator, io, Vault.ENTRY_LEN);
-        defer allocator.rawFree(data, alignment, std.heap.page_size_min);
+        defer pzcrypt.freeSecret(allocator, data);
 
         try vault.addEntry(allocator, io, name, data);
     }
@@ -252,17 +251,11 @@ test "serialize deserialize" {
     const vault_serialized = try serializeVault(allocator, vault);
     defer allocator.free(vault_serialized);
 
-    const vault_deserialized = try allocator.create(Vault);
-    defer vault_deserialized.deinit(allocator);
-
-    vault_deserialized.file_path = try allocator.print(
-        "{s}/{s}/{s}",
-        .{
-            home,
-            sub_dir_name,
-            file_name,
-        },
+    const vault_deserialized = try Vault.createEmpty(
+        allocator,
+        try allocator.print("{s}/{s}/{s}", .{ home, sub_dir_name, file_name }),
     );
+    defer vault_deserialized.deinit(allocator);
 
     try deserializeVault(allocator, vault_deserialized, vault_serialized);
     try verifyMac(vault.vault_key, vault_serialized);
@@ -295,19 +288,12 @@ test "serialize deserialize" {
     try storage.writeFile(allocator, io, home, sub_dir_name, file_name, vault_serialized);
 
     const data_from_file = try storage.readFileAlloc(allocator, io, home, sub_dir_name, file_name);
-    defer allocator.rawFree(data_from_file, alignment, std.heap.page_size_min);
+    defer allocator.free(data_from_file);
 
-    const vault_from_file = try allocator.create(Vault);
-
-    vault_from_file.file_path = try allocator.print(
-        "{s}/{s}/{s}",
-        .{
-            home,
-            sub_dir_name,
-            file_name,
-        },
+    const vault_from_file = try Vault.createEmpty(
+        allocator,
+        try allocator.print("{s}/{s}/{s}", .{ home, sub_dir_name, file_name }),
     );
-
     defer vault_from_file.deinit(allocator);
 
     try deserializeVault(allocator, vault_from_file, data_from_file);
