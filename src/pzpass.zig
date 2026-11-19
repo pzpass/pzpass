@@ -6,30 +6,24 @@ const interactive = @import("interactive.zig");
 const pzcrypt = @import("crypto.zig");
 
 const passwordgen = @import("passwordgen.zig");
-const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 pub fn run(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    // Not the arena: frees must actually release memory in a long TUI session,
+    // and in debug builds this allocator also reports leaks and bad frees.
+    const allocator = init.gpa;
 
-    const stdout_buff = try allocator.alignedAlloc(u8, alignment, Vault.ENTRY_LEN);
-    try pzcrypt.mlockSlice(stdout_buff);
-    defer {
-        pzcrypt.zeroAndMunlock(stdout_buff);
-        allocator.free(stdout_buff);
-    }
+    // Terminal I/O carries passwords and entry data, so both buffers are secrets.
+    const stdout_buff = try pzcrypt.allocSecret(allocator, Vault.ENTRY_LEN);
+    defer pzcrypt.freeSecret(allocator, stdout_buff);
 
     var stdout_file = std.Io.File.stdout().writer(init.io, stdout_buff);
     const stdout = &stdout_file.interface;
 
-    const stdin_buff = try allocator.alignedAlloc(u8, alignment, Vault.ENTRY_LEN);
+    const stdin_buff = try pzcrypt.allocSecret(allocator, Vault.ENTRY_LEN);
+    defer pzcrypt.freeSecret(allocator, stdin_buff);
 
     var stdin_reader = std.Io.File.stdin().reader(init.io, stdin_buff);
     const stdin = &stdin_reader.interface;
-    try pzcrypt.mlockSlice(stdin_buff);
-    defer {
-        pzcrypt.zeroAndMunlock(stdin_buff);
-        allocator.free(stdin_buff);
-    }
 
     const prompt_options: Vault.Options = .{
         .out = stdout,

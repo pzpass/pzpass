@@ -11,7 +11,6 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
-const alignment = std.mem.Alignment.fromByteUnits(std.heap.page_size_min);
 
 const posix = std.posix;
 var keep_running = std.atomic.Value(bool).init(true);
@@ -58,13 +57,8 @@ pub fn run(
     const typed_password = (try takeDelimiter(out, in, '\n')) orelse return error.NullPassword;
 
     // Copy out of the stdin buffer: reading the confirmation line would overwrite it.
-    const password = try allocator.alignedAlloc(u8, alignment, typed_password.len);
-    try pzcrypt.mlockSlice(password);
-    defer {
-        pzcrypt.zeroAndMunlock(password);
-        if (password.len != 0) allocator.rawFree(password, alignment, std.heap.page_size_min);
-    }
-    @memcpy(password, typed_password);
+    const password = try pzcrypt.dupeSecret(allocator, typed_password);
+    defer pzcrypt.freeSecret(allocator, password);
     std.crypto.secureZero(u8, typed_password);
 
     const vault_path = try allocator.print("{s}/{s}/{s}", .{ base_dir_name, sub_dir_name, file_name });
