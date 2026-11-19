@@ -9,7 +9,7 @@ macOS arm64.
 ```bash
 zig build                                              # debug build; always reruns the gen step
 zig build run -- pass 24                               # note the `--` (passthru args)
-zig build test                                         # ~80s, 23 tests (Argon2id dominates)
+zig build test                                         # ~5 min, 28 tests (Argon2id dominates)
 zig test src/vault.zig --test-filter 'wrong password'  # focused run; `zig build test` takes no filter
 zig build gen                                          # regenerate src/dicelist.zig
 zig build clean                                        # deletes zig-out/, tmp/, .pzpass/ (not .zig-cache/)
@@ -31,10 +31,21 @@ This is Zig 0.17: `std.process.Init`, `std.Io.Reader`/`Writer` over caller-suppl
 ## Vault format is fragile
 
 - `src/format.zig` serializes `Vault.Header`/`Vault.Entry` field by field; order and widths
-  must mirror the structs. For v2 the header is AEAD associated data (`headerAuthData`), so
+  must mirror the structs. The header is AEAD associated data for the wrapped vault key
+  (`headerAad`: none for v1, version/Argon2 params/salt for v2, plus `vault_id` for v3), so
   reordering/retyping fields silently makes existing vaults undecryptable.
-- Bump `Config.VERSION` on layout changes and keep the v1 path working
-  (`version == 1` → empty AAD). The duplicated entry count is an integrity check, not redundancy.
+- v3 (current): entries stay individually encrypted, but each field's AAD is
+  `vault_id ‖ entry.id ‖ 'n'|'d'` (`crypto.zig` `entryAd`), and the file ends with an
+  HMAC-SHA256 over everything before it (`format.fileMac`, key derived from the vault key),
+  checked in `Vault.init` after the key is unwrapped.
+- Writing always produces `Config.VERSION`; v1/v2 files are migrated in memory on open
+  (`Vault.migrate`, sets `vault.migrated`) and written as v3 on the next save. Keep them
+  loading: `src/testdata/v{1,2}.fixture` are real old-format files (password
+  `fixture-password`) used by the migration test; never regenerate them with new code.
+- `updatePassword` rotates the vault key (re-encrypts every entry) and the next `save`
+  deletes `<file>.bak`, which is still readable with the old password.
+- Bump `Config.VERSION` on layout changes. The duplicated entry count is an integrity check,
+  not redundancy.
 - Per-entry cap is 16 MiB in `format.zig`; interactive input is capped at `Config.ENTRY_LEN` (4096).
 
 ## Security invariants

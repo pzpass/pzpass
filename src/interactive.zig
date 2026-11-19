@@ -101,6 +101,14 @@ pub fn run(
     );
     defer vault.deinit(allocator);
 
+    if (vault.migrated) {
+        try out.print(
+            "\x1b[33mVault upgraded to format v{d}; it is written in the new format when you save.\x1b[0m\n",
+            .{vault.header.version},
+        );
+        vault_changed = true;
+    }
+
     while (keep_running.load(.monotonic)) {
         try flushInput(out, in);
         try Vault.short_help(out);

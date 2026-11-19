@@ -36,17 +36,38 @@ pub fn deriveKey(
     return key;
 }
 
+const ENTRY_AD_LEN = Config.ID_LEN * 2 + 1;
+
+/// Associated data for one field of a v3 entry: vault id ‖ entry id ‖ field label.
+/// Binds the name and the data to each other and to this vault, so ciphertexts
+/// can't be swapped between entries, fields or vaults. A null vault id means a
+/// v1/v2 entry, which was encrypted without associated data.
+fn entryAd(
+    buf: *[ENTRY_AD_LEN]u8,
+    vault_id: ?*const [Config.ID_LEN]u8,
+    entry_id: *const [Config.ID_LEN]u8,
+    label: u8,
+) []const u8 {
+    const vid = vault_id orelse return buf[0..0];
+    buf[0..Config.ID_LEN].* = vid.*;
+    buf[Config.ID_LEN..][0..Config.ID_LEN].* = entry_id.*;
+    buf[2 * Config.ID_LEN] = label;
+    return buf;
+}
+
 pub fn encrypt(
     entry: *Vault.Entry,
     key: [Config.KEY_LEN]u8,
+    vault_id: *const [Config.ID_LEN]u8,
     name: []const u8,
     data: []const u8,
 ) void {
+    var ad: [ENTRY_AD_LEN]u8 = undefined;
     aead.encrypt(
         entry.ciphertext_name,
         &entry.tag_name,
         name,
-        "",
+        entryAd(&ad, vault_id, &entry.id, 'n'),
         entry.nonce_name,
         key,
     );
@@ -55,7 +76,7 @@ pub fn encrypt(
         entry.ciphertext_data,
         &entry.tag_data,
         data,
-        "",
+        entryAd(&ad, vault_id, &entry.id, 'd'),
         entry.nonce_data,
         key,
     );
@@ -64,14 +85,16 @@ pub fn encrypt(
 pub fn decrypt(
     entry: *const Vault.Entry,
     key: [Config.KEY_LEN]u8,
+    vault_id: ?*const [Config.ID_LEN]u8,
     name: []u8,
     data: []u8,
 ) !void {
+    var ad: [ENTRY_AD_LEN]u8 = undefined;
     try aead.decrypt(
         name,
         entry.ciphertext_name,
         entry.tag_name,
-        "",
+        entryAd(&ad, vault_id, &entry.id, 'n'),
         entry.nonce_name,
         key,
     );
@@ -80,10 +103,25 @@ pub fn decrypt(
         data,
         entry.ciphertext_data,
         entry.tag_data,
-        "",
+        entryAd(&ad, vault_id, &entry.id, 'd'),
         entry.nonce_data,
         key,
     );
+}
+
+pub const Secret = []align(std.heap.page_size_min) u8;
+
+/// Page-aligned, mlocked buffer for plaintext. Release with `freeSecret`.
+pub fn allocSecret(allocator: Allocator, len: usize) !Secret {
+    const buf = try allocator.alignedAlloc(u8, .fromByteUnits(std.heap.page_size_min), len);
+    errdefer allocator.free(buf);
+    try mlockSlice(buf);
+    return buf;
+}
+
+pub fn freeSecret(allocator: Allocator, buf: Secret) void {
+    zeroAndMunlock(buf);
+    allocator.free(buf);
 }
 
 pub fn mlockSlice(key: []u8) !void {
@@ -137,6 +175,10 @@ test "derive key" {
 
     rng.bytes(&entry.nonce_name);
     rng.bytes(&entry.nonce_data);
+    rng.bytes(&entry.id);
+
+    var vault_id: [Config.ID_LEN]u8 = undefined;
+    rng.bytes(&vault_id);
 
     const name = "plain text";
     entry.ciphertext_name = try allocator.alloc(u8, name.len);
@@ -146,13 +188,20 @@ test "derive key" {
     entry.ciphertext_data = try allocator.alloc(u8, data.len);
     defer allocator.free(entry.ciphertext_data);
 
-    encrypt(entry, derived_key, name, data);
+    encrypt(entry, derived_key, &vault_id, name, data);
 
     var decrypted_name: [name.len]u8 = undefined;
     var decrypted_data: [data.len]u8 = undefined;
 
-    try decrypt(entry, derived_key, &decrypted_name, &decrypted_data);
+    try decrypt(entry, derived_key, &vault_id, &decrypted_name, &decrypted_data);
 
     try expectEqualSlices(u8, data, &decrypted_data);
     try expectEqualSlices(u8, name, &decrypted_name);
+
+    // The same ciphertext under a different entry id must not decrypt.
+    entry.id[0] ^= 1;
+    try std.testing.expectError(
+        error.AuthenticationFailed,
+        decrypt(entry, derived_key, &vault_id, &decrypted_name, &decrypted_data),
+    );
 }
