@@ -44,7 +44,7 @@
 │   ├── clean_helper.zig        # Build artifact cleanup
 │   └── toolbox_utils.zig       # Shared helpers for build tools
 ├── build.zig                   # Build definition
-├── build.zig.zon               # Package manifest (v0.0.4)
+├── build.zig.zon               # Package manifest (v1.0.1)
 ├── README.md
 └── LICENSE
 ```

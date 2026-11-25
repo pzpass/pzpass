@@ -60,7 +60,7 @@ Installs the `pzp` binary.
 ### Direct download
 
 ```bash
-TAG=v1.0.0
+TAG=v1.0.1
 TARGET=aarch64-macos  # or x86_64-linux, aarch64-linux
 curl -fLO "https://github.com/pzpass/pzpass/releases/download/$TAG/pzp-$TAG-$TARGET.tar.gz"
 curl -fLO "https://github.com/pzpass/pzpass/releases/download/$TAG/pzp-$TAG-$TARGET.tar.gz.sha256"
