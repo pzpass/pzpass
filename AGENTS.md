@@ -1,7 +1,7 @@
 # AGENTS.md
 
 PzPass: zero-dependency Zig password generator + encrypted vault. Library `src/pzpass.zig`,
-thin binary `cli/main.zig` → `pzp`. Zig 0.17+ (CI pins 0.17.0); targets Linux x86_64/arm64,
+thin binary `cli/main.zig` → `pzp`. Zig 0.17+ (CI pins 0.17.1); targets Linux x86_64/arm64,
 macOS arm64.
 
 ## Commands
@@ -92,6 +92,6 @@ This is Zig 0.17: `std.process.Init`, `std.Io.Reader`/`Writer` over caller-suppl
 ## CI
 
 - PRs to `main` → `.github/workflows/checks.yaml`: `zig fmt --check src/ cli/ tools/`
-  (continue-on-error), `zig build --summary all`, `zig build test --summary all`, Zig 0.17.0.
+  (continue-on-error), `zig build --summary all`, `zig build test --summary all`, Zig 0.17.1.
 - Release workflows build `--release=small`. `security-audit.yaml` runs on pushes to non-main
   branches only (its call in `ci.yaml` is commented out).

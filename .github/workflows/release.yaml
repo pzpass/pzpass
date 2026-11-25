@@ -3,25 +3,64 @@ name: Release
 on:
   release:
     types: [published]
-  workflow_call:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach binaries to
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   build-and-upload:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            runner: ubuntu-latest
+          - target: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - target: aarch64-macos
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install Zig
-        run: |
-          curl -sL "https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz" | tar -xJ
-          echo "$PWD/zig-x86_64-linux-0.17.0" >> "$GITHUB_PATH"
-
-      - name: Build Zig Binary
-        run: zig build --release=small
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v7
         with:
-          name: pzp
-          path: zig-out/bin/
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      # No build cache: release binaries must not depend on cache entries written by PR runs.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.1
+          use-cache: false
+
+      # Pin the target with a baseline CPU; the default "native" would bake in the runner's CPU features.
+      - name: Build
+        run: zig build --release=small -Dtarget=${{ matrix.target }} -Dcpu=baseline
+
+      - name: Smoke test
+        run: test "$(zig-out/bin/pzp pass 24 | tr -d '\n' | wc -c | tr -d ' ')" = 24
+
+      - name: Package
+        id: package
+        run: |
+          name="pzp-${TAG}-${{ matrix.target }}"
+          mkdir "$name"
+          cp zig-out/bin/pzp LICENSE README.md "$name/"
+          tar -czf "$name.tar.gz" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          echo "archive=$name.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber --repo "$GITHUB_REPOSITORY"
