@@ -12,10 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Zig
-        run: |
-          curl -sL "https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz" | tar -xJ
-          echo "$PWD/zig-x86_64-linux-0.17.0" >> "$GITHUB_PATH"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.1
 
       - name: Format check
         continue-on-error: true
