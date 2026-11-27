@@ -2,6 +2,8 @@
 
 **PzPass** is a minimal, high-performance password generator and encrypted secret vault manager built with Zig. It prioritizes simplicity, control, and auditability over feature bloat.
 
+Website: <https://pzpass.github.io/>
+
 ## Features
 
 - Encrypted vault for storing secrets (ChaCha20-Poly1305 AEAD)
